@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#1f7a6d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Push Test" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icon-180.png" />
+    <title>Test B: Push to the Home Screen app</title>
+    <link rel="stylesheet" href="../spike.css" />
+  </head>
+  <body>
+    <main>
+      <p class="muted"><a href="../">Phase 0</a></p>
+      <h1>Test B: Push to the Home Screen app</h1>
+      <p class="muted">
+        Add this page to the Home Screen (Share, then Add to Home Screen) and open it from the icon.
+        Notifications are not available in a Safari tab.
+      </p>
+
+      <section class="card" id="opened" hidden>
+        <p class="ok" id="opened-text"></p>
+      </section>
+
+      <section class="card">
+        <h2>This device</h2>
+        <dl id="status"></dl>
+      </section>
+
+      <section class="card">
+        <h2>Worker</h2>
+        <label for="worker-url">Worker address</label>
+        <input id="worker-url" type="url" placeholder="https://companion-worker.example.workers.dev" autocapitalize="off" />
+        <label for="app-key">Worker app key</label>
+        <input id="app-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <div class="row">
+          <button id="check" class="secondary" type="button">Check connection</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Steps</h2>
+        <p>1. Allow notifications and register this phone with the Worker.</p>
+        <div class="row"><button id="enable" type="button">Enable notifications</button></div>
+        <p style="margin-top: 14px">2. Send one now, with the app open.</p>
+        <div class="row"><button id="send-now" class="secondary" type="button">Send a test now</button></div>
+        <p style="margin-top: 14px">3. Schedule one, then close the app and lock the phone.</p>
+        <div class="row">
+          <button id="send-1" class="secondary" type="button">In 1 minute</button>
+          <button id="send-5" class="secondary" type="button">In 5 minutes</button>
+        </div>
+        <p style="margin-top: 14px">4. Tap the notification. The app should open and say so at the top.</p>
+      </section>
+
+      <section class="card">
+        <h2>Log</h2>
+        <p class="muted">Includes pushes the service worker received while the app was closed.</p>
+        <pre id="log">Nothing yet.</pre>
+        <div class="row">
+          <button id="copy" class="secondary" type="button">Copy log</button>
+          <button id="refresh" class="secondary" type="button">Refresh</button>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="push.js"></script>
+  </body>
+</html>

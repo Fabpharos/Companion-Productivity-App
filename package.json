@@ -1,0 +1,16 @@
+{
+  "name": "companion-productivity-app",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test \"worker/test/*.test.ts\" \"spikes/**/*.test.js\"",
+    "typecheck": "npx --yes --package typescript@5.9 tsc --project worker/tsconfig.json",
+    "vapid-keys": "node worker/scripts/make-keys.ts",
+    "spikes": "node tools/serve.js",
+    "worker:dev": "npx --yes wrangler@4 dev --config worker/wrangler.toml",
+    "worker:deploy": "npx --yes wrangler@4 deploy --config worker/wrangler.toml"
+  }
+}
