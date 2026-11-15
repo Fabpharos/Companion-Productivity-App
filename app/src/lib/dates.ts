@@ -40,6 +40,11 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((toDate(to).getTime() - toDate(from).getTime()) / 86_400_000);
 }
 
+/** The Monday of the week a date falls in. Weeks run Monday to Sunday. */
+export function weekStart(date: string): string {
+  return addDays(date, -((toDate(date).getDay() + 6) % 7));
+}
+
 function step(date: string, repeat: Repeat, times: number): string {
   const n = Math.max(1, Math.floor(repeat.every)) * times;
   switch (repeat.unit) {

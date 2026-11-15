@@ -2,6 +2,8 @@
   // The shell: a header, the capture box, the current screen, and five tabs.
   import { formatDate, weekdayName } from "./lib/dates.ts";
   import Archive from "./screens/Archive.svelte";
+  import Chores from "./screens/Chores.svelte";
+  import CompanionTab from "./screens/CompanionTab.svelte";
   import Lists from "./screens/Lists.svelte";
   import ListView from "./screens/ListView.svelte";
   import Search from "./screens/Search.svelte";
@@ -9,14 +11,14 @@
   import Today from "./screens/Today.svelte";
   import { currentHash, data, TABS, ui, undoToast, type Tab } from "./state.svelte.ts";
   import CaptureBar from "./ui/CaptureBar.svelte";
+  import ChoreSheet from "./ui/ChoreSheet.svelte";
+  import TimerBar from "./ui/TimerBar.svelte";
   import Icon from "./ui/Icon.svelte";
   import ItemEditor from "./ui/ItemEditor.svelte";
 
   const LABELS: Record<Tab, string> = { today: "Today", lists: "Lists", chores: "Chores", trips: "Trips", companion: "Companion" };
   const COMING: Partial<Record<Tab, { phase: number; text: string }>> = {
-    chores: { phase: 2, text: "Chores that track how overdue they are, with points, streaks and quests." },
     trips: { phase: 3, text: "Packing lists, itineraries, budgets and phrase cards for each trip, starting with Japan." },
-    companion: { phase: 2, text: "A companion who reacts as things get done, and grows with you." },
   };
 
   const list = $derived(ui.tab === "lists" ? data.list(ui.listId) : undefined);
@@ -59,7 +61,7 @@
     <button class="icon-btn" aria-label="Settings" onclick={() => (ui.overlay = "settings")}><Icon name="settings" /></button>
   </header>
 
-  <CaptureBar {list} />
+  <CaptureBar {list} chores={ui.tab === "chores"} />
 
   <main class="scroll">
     {#if !data.ready}
@@ -72,6 +74,10 @@
       {:else}
         <Lists />
       {/if}
+    {:else if ui.tab === "chores"}
+      <Chores />
+    {:else if ui.tab === "companion"}
+      <CompanionTab />
     {:else if coming}
       <div class="placeholder">
         <span class="glyph"><Icon name={ui.tab} size={34} /></span>
@@ -81,6 +87,8 @@
       </div>
     {/if}
   </main>
+
+  <TimerBar />
 
   <nav class="tabs" aria-label="Sections">
     {#each TABS as tab (tab)}
@@ -95,6 +103,9 @@
 {#if ui.overlay === "search"}<Search />{/if}
 {#if ui.overlay === "settings"}<Settings />{/if}
 {#if ui.overlay === "archive"}<Archive />{/if}
+{#if ui.choreId}
+  {#key ui.choreId}<ChoreSheet id={ui.choreId} />{/key}
+{/if}
 {#if ui.editId}
   {#key ui.editId}<ItemEditor id={ui.editId} />{/key}
 {/if}

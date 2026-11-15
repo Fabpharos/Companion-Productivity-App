@@ -3,10 +3,12 @@
 
 import { BackupError, makeBackup, readBackup } from "./backup.ts";
 import { parseCapture } from "./capture.ts";
+import { makeChore, parseChore } from "./chores.ts";
 import { localDate } from "./dates.ts";
 import { apply, db, readSnapshot, saveSettings, writeSnapshot, type Undo } from "./db.ts";
+import { dayQuestsId, itemPoints, makeDailyQuests, makeWeeklyQuest, remainingChorePoints, stepPoints, weekQuestsId } from "./game.ts";
 import { completeItem, isArchived, isStocked, makeItem, reopenItem, retype } from "./items.ts";
-import { homeList, INBOX, newId, type Item, type ItemKind, type List } from "./model.ts";
+import { homeList, INBOX, newId, type Activity, type Chore, type Item, type ItemKind, type List, type Reward } from "./model.ts";
 import { FOCUS_SLOTS } from "./today.ts";
 
 export interface Captured {
@@ -40,10 +42,17 @@ export async function saveItem(item: Item): Promise<Undo> {
   return apply({ put: { items: [{ ...item, updatedAt: Date.now() }] } });
 }
 
-export async function complete(item: Item): Promise<Undo> {
+/** The result of completing something: how to take it back, and the log entry it wrote. */
+export interface Completed {
+  undo: Undo;
+  entry: Activity;
+}
+
+export async function complete(item: Item): Promise<Completed> {
   const now = Date.now();
-  const { items, activity } = completeItem(item, now, localDate(now));
-  return apply({ put: { items, activity: [activity] } });
+  const today = localDate(now);
+  const { items, activity } = completeItem(item, now, today, itemPoints(item, today));
+  return { undo: await apply({ put: { items, activity: [activity] } }), entry: activity };
 }
 
 export async function reopen(item: Item): Promise<Undo> {
@@ -102,6 +111,98 @@ export async function emptyArchive(): Promise<{ count: number; undo: Undo }> {
   const ids = await db.items.filter(isArchived).primaryKeys();
   return { count: ids.length, undo: await apply({ remove: { items: ids } }) };
 }
+
+// ---------- Chores ----------
+
+/** Adds a chore from typed text such as "Vacuum weekly". Returns null when there is no name in it. */
+export async function addChore(raw: string): Promise<{ chore: Chore; undo: Undo } | null> {
+  const parsed = parseChore(raw);
+  if (!parsed) return null;
+  const chore = makeChore(parsed, Date.now());
+  return { chore, undo: await apply({ put: { chores: [chore] } }) };
+}
+
+export async function saveChore(chore: Chore): Promise<Undo> {
+  return apply({ put: { chores: [chore] } });
+}
+
+export async function removeChore(chore: Chore): Promise<Undo> {
+  return apply({ remove: { chores: [chore.id] } });
+}
+
+/** Completes a chore: the clock restarts, its steps clear, and whatever points the steps have not already paid are earned. */
+export async function completeChore(chore: Chore): Promise<Completed> {
+  const now = Date.now();
+  const entry: Activity = { id: newId(), at: now, type: "chore", itemId: chore.id, text: chore.name, points: remainingChorePoints(chore, now) };
+  const done: Chore = { ...chore, lastDoneAt: now, steps: chore.steps.map((step) => ({ ...step, done: false })) };
+  return { undo: await apply({ put: { chores: [done], activity: [entry] } }), entry };
+}
+
+/** The log entry for a step, named so that unticking the step can find it. A new round of the chore gets new names. */
+const stepEntryId = (chore: Chore, stepId: string) => `step:${chore.id}:${stepId}:${chore.lastDoneAt ?? 0}`;
+
+/**
+ * Ticks or unticks one step of a chore. Ticking earns the step's share of the
+ * points, and ticking the last one completes the chore. Unticking gives the
+ * share back. Returns null when nothing was earned.
+ */
+export async function toggleStep(chore: Chore, stepId: string): Promise<Completed | null> {
+  const step = chore.steps.find((other) => other.id === stepId);
+  if (!step) return null;
+  const steps = chore.steps.map((other) => (other.id === stepId ? { ...other, done: !other.done } : other));
+  if (step.done) {
+    await apply({ put: { chores: [{ ...chore, steps }] }, remove: { activity: [stepEntryId(chore, stepId)] } });
+    return null;
+  }
+  if (steps.every((other) => other.done)) return completeChore(chore);
+  const now = Date.now();
+  const entry: Activity = {
+    id: stepEntryId(chore, stepId),
+    at: now,
+    type: "step",
+    itemId: chore.id,
+    text: `${chore.name}: ${step.text}`,
+    points: stepPoints(chore, now),
+  };
+  return { undo: await apply({ put: { chores: [{ ...chore, steps }], activity: [entry] } }), entry };
+}
+
+// ---------- Quests and rewards ----------
+
+/** Makes today's quests and this week's, if they have not been made yet. Quests are fixed once made. */
+export async function ensureQuests(today: string): Promise<void> {
+  await db.transaction("rw", db.quests, db.chores, db.items, async () => {
+    const now = Date.now();
+    const chores = await db.chores.toArray();
+    if (!(await db.quests.get(dayQuestsId(today)))) {
+      await db.quests.put({ id: dayQuestsId(today), quests: makeDailyQuests(chores, await db.items.toArray(), today, now) });
+    }
+    if (!(await db.quests.get(weekQuestsId(today)))) {
+      await db.quests.put({ id: weekQuestsId(today), quests: [makeWeeklyQuest(chores)] });
+    }
+  });
+}
+
+export async function addReward(name: string, price: number): Promise<Undo> {
+  const reward: Reward = { id: newId(), name: name.trim(), price: Math.max(1, Math.floor(price)), createdAt: Date.now() };
+  return apply({ put: { rewards: [reward] } });
+}
+
+export async function removeReward(reward: Reward): Promise<Undo> {
+  return apply({ remove: { rewards: [reward.id] } });
+}
+
+/** Spends points on a reward. The reward stays on the wish-list to be earned again. */
+export async function buyReward(reward: Reward): Promise<Undo> {
+  const entry: Activity = { id: newId(), at: Date.now(), type: "reward", itemId: reward.id, text: reward.name, points: -reward.price };
+  return apply({ put: { activity: [entry] } });
+}
+
+export async function setLowEnergy(lowEnergy: boolean): Promise<void> {
+  await saveSettings({ lowEnergy });
+}
+
+// ---------- Backup ----------
 
 /** The backup file's contents. Call `markBackedUp` once the file has actually been saved. */
 export async function exportBackup(): Promise<string> {

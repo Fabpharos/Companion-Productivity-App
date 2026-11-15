@@ -3,10 +3,11 @@
   // the entry went and lets one tap file it as something else.
   import { describeDue } from "../lib/dates.ts";
   import type { ItemKind, List } from "../lib/model.ts";
-  import { capture, data, dismissCaptured, recapture, ui } from "../state.svelte.ts";
+  import { addChore, capture, data, dismissCaptured, recapture, ui } from "../state.svelte.ts";
   import Icon from "./Icon.svelte";
 
-  let { list }: { list?: List } = $props();
+  // On the Chores tab the box adds chores instead.
+  let { list, chores = false }: { list?: List; chores?: boolean } = $props();
 
   const KINDS: { kind: ItemKind; label: string }[] = [
     { kind: "note", label: "Note" },
@@ -31,7 +32,8 @@
     const raw = text.trim();
     if (!raw) return;
     text = "";
-    await capture(raw, list);
+    if (chores) await addChore(raw);
+    else await capture(raw, list);
   }
 </script>
 
@@ -43,12 +45,12 @@
       enterkeyhint="done"
       autocomplete="off"
       autocapitalize="sentences"
-      placeholder={target ? `Add to ${target.name}` : "Capture a note, to-do or grocery"}
+      placeholder={chores ? "Add a chore, like \"Vacuum weekly\"" : target ? `Add to ${target.name}` : "Capture a note, to-do or grocery"}
       aria-label="Quick capture"
     />
     <button class="add" type="submit" disabled={!text.trim()} aria-label="Add"><Icon name="plus" size={20} /></button>
   </form>
-  {#if summary}
+  {#if summary && !chores}
     <div class="captured" role="status">
       <span class="what">{summary.text}</span>
       <span>File as</span>

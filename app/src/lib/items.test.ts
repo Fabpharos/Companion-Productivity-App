@@ -24,7 +24,7 @@ test("completing a to-do archives it and logs it", () => {
   assert.equal(items.length, 1);
   assert.equal(items[0]?.doneAt, 5000);
   assert.ok(isArchived(items[0]!));
-  assert.deepEqual({ ...activity, id: "" }, { id: "", at: 5000, type: "done", itemId: item.id, kind: "todo", text: "Call the dentist" });
+  assert.deepEqual({ ...activity, id: "" }, { id: "", at: 5000, type: "done", itemId: item.id, kind: "todo", text: "Call the dentist", points: 0 });
 });
 
 test("completing a repeating to-do leaves the next one in its place", () => {

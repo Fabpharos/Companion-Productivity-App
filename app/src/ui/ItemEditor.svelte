@@ -3,10 +3,10 @@
   // no save button to forget.
   import { SECTION_ORDER } from "../../content/groceries.ts";
   import { addDays, formatDate, localDate } from "../lib/dates.ts";
-  import { isOpen, parseTags, retype } from "../lib/items.ts";
+  import { isOpen, parseTags, retype, title } from "../lib/items.ts";
   import { newId, type Item, type ItemKind, type Priority } from "../lib/model.ts";
   import { FOCUS_SLOTS } from "../lib/today.ts";
-  import { actions, complete, data, remove, reopen, toast, ui } from "../state.svelte.ts";
+  import { actions, complete, data, remove, reopen, startTimer, toast, ui } from "../state.svelte.ts";
   import Icon from "./Icon.svelte";
 
   let { id }: { id: string } = $props();
@@ -266,7 +266,21 @@
         </div>
       {/if}
 
-      <div style="display:flex;gap:8px;margin-top:20px">
+      {#if draft.kind === "todo" && isOpen(draft)}
+        <button
+          class="btn"
+          style="width:100%;margin-top:20px"
+          onclick={() => {
+            const item = $state.snapshot(draft)!;
+            close();
+            startTimer("todo", item.id, title(item), 25);
+          }}
+        >
+          <Icon name="timer" size={18} />Focus on this for 25 minutes
+        </button>
+      {/if}
+
+      <div style="display:flex;gap:8px;margin-top:12px">
         {#if isOpen(draft) && draft.kind !== "note"}
           <button class="btn primary" style="flex:1" onclick={() => finish(complete)}>
             <Icon name="check" size={18} />{draft.kind === "shopping" ? "Got it" : "Complete"}

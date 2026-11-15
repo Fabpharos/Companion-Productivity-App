@@ -3,7 +3,9 @@
   import { INBOX, type Item } from "../lib/model.ts";
   import { FOCUS_SLOTS, suggestFocus, todayView } from "../lib/today.ts";
   import { actions, data, toast, ui } from "../state.svelte.ts";
+  import Companion from "../ui/Companion.svelte";
   import ItemRow from "../ui/ItemRow.svelte";
+  import Quests from "../ui/Quests.svelte";
 
   const view = $derived(todayView(data.items, data.today));
   const suggestions = $derived(suggestFocus(data.items, data.today));
@@ -27,6 +29,8 @@
     </div>
   {/if}
 {/snippet}
+
+<Companion />
 
 {#if backupDue}
   <div class="banner">
@@ -62,6 +66,8 @@
 {#if quiet}
   <p class="empty"><strong>Nothing due</strong>Capture something above, or pick a to-do from your lists.</p>
 {/if}
+
+<Quests />
 
 {#if view.inboxCount}
   <div class="section-head"><h2>Inbox</h2></div>

@@ -52,6 +52,51 @@ export interface List {
   createdAt: number;
 }
 
+/** A recurring household job, tracked by how long it has been since it was last done. */
+export interface Chore {
+  id: string;
+  name: string;
+  /** How often it should be done. */
+  everyDays: number;
+  lastDoneAt: number | null;
+  createdAt: number;
+  /** 1 easy, 2 medium, 3 hard. Sets the base points. */
+  effort: 1 | 2 | 3;
+  /** 0 fine, 1 disliked, 2 hated. Disliked chores earn a bonus. */
+  dislike: 0 | 1 | 2;
+  /** Small steps. Their done marks clear each time the chore is completed. */
+  steps: Subtask[];
+}
+
+/** Something on the wish-list that points can buy. */
+export interface Reward {
+  id: string;
+  name: string;
+  price: number;
+  createdAt: number;
+}
+
+export type QuestKind = "chore" | "item" | "count" | "points" | "chores";
+
+/**
+ * A small goal for a day or a week. "chore" and "item" name one thing to do
+ * (`ref`); "count", "points" and "chores" are met by reaching `target`.
+ */
+export interface Quest {
+  id: string;
+  kind: QuestKind;
+  ref: string | null;
+  target: number;
+  text: string;
+  bonus: number;
+}
+
+/** The quests of one day ("d:2026-11-14") or one week ("w:2026-11-09", its Monday). */
+export interface QuestSet {
+  id: string;
+  quests: Quest[];
+}
+
 export type Theme = "system" | "light" | "dark";
 
 export interface Settings {
@@ -59,16 +104,29 @@ export interface Settings {
   lastBackupAt: number | null;
   /** The backup reminder stays hidden until this time. */
   backupSnoozedUntil: number | null;
+  /** Shows only easy chores and has the companion speak more gently. */
+  lowEnergy: boolean;
 }
 
-/** A dated record of something completed. Later phases build streaks and reviews on it. */
+export type ActivityType = "done" | "chore" | "step" | "reward";
+
+/**
+ * A dated record of something completed, or of points spent on a reward.
+ * The log is the only place points are stored: the balance, level, streak and
+ * quest progress are all worked out from it, so undoing a completion takes
+ * back everything it earned.
+ */
 export interface Activity {
   id: string;
   at: number;
-  type: "done";
+  /** "done" is an item, "chore" a whole chore, "step" one step of a chore, "reward" a purchase. */
+  type: ActivityType;
+  /** The item, chore or reward this is about. */
   itemId: string;
-  kind: ItemKind;
+  kind?: ItemKind;
   text: string;
+  /** Points earned, or a negative number for points spent. */
+  points: number;
 }
 
 /** Everything the app stores, as one value. */
@@ -76,6 +134,9 @@ export interface Snapshot {
   items: Item[];
   lists: List[];
   activity: Activity[];
+  chores: Chore[];
+  rewards: Reward[];
+  quests: QuestSet[];
   settings: Settings;
 }
 
@@ -95,6 +156,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   lastBackupAt: null,
   backupSnoozedUntil: null,
+  lowEnergy: false,
 };
 
 /** The built-in list an item of this kind goes to when nothing else says where. */

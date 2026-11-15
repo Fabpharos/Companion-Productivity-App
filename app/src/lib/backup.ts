@@ -10,12 +10,16 @@ import {
   DEFAULT_SETTINGS,
   INBOX,
   type Activity,
+  type Chore,
   type Item,
   type ItemKind,
   type List,
   type ListKind,
   type Priority,
+  type Quest,
+  type QuestSet,
   type Repeat,
+  type Reward,
   type Settings,
   type Snapshot,
   type Subtask,
@@ -23,7 +27,7 @@ import {
 
 export const APP_ID = "companion-productivity-app";
 /** Raise this when the shape of the stored data changes, and teach `readBackup` the old shape. */
-export const BACKUP_FORMAT = 1;
+export const BACKUP_FORMAT = 2;
 export const BACKUP_EVERY_DAYS = 14;
 
 const DAY = 86_400_000;
@@ -102,14 +106,53 @@ function readList(raw: unknown, now: number): List | null {
 
 function readActivity(raw: unknown): Activity | null {
   if (!isObject(raw) || !str(raw.id) || numOrNull(raw.at) === null) return null;
-  return {
+  const entry: Activity = {
     id: str(raw.id),
     at: num(raw.at, 0),
-    type: "done",
+    type: oneOf(raw.type, ["done", "chore", "step", "reward"] as const, "done"),
     itemId: str(raw.itemId),
-    kind: oneOf(raw.kind, ITEM_KINDS, "todo"),
     text: str(raw.text),
+    // Format 1 had no points. Its completions keep their place in the log and earn nothing.
+    points: Math.round(num(raw.points, 0)),
   };
+  if (ITEM_KINDS.includes(raw.kind as ItemKind)) entry.kind = raw.kind as ItemKind;
+  return entry;
+}
+
+function readChore(raw: unknown, now: number): Chore | null {
+  if (!isObject(raw) || !str(raw.id) || !str(raw.name)) return null;
+  return {
+    id: str(raw.id),
+    name: str(raw.name),
+    everyDays: Math.max(1, Math.floor(num(raw.everyDays, 7))),
+    lastDoneAt: numOrNull(raw.lastDoneAt),
+    createdAt: num(raw.createdAt, now),
+    effort: Math.min(3, Math.max(1, Math.floor(num(raw.effort, 2)))) as Chore["effort"],
+    dislike: Math.min(2, Math.max(0, Math.floor(num(raw.dislike, 0)))) as Chore["dislike"],
+    steps: array(raw.steps).map(readSubtask).filter((step) => step !== null),
+  };
+}
+
+function readReward(raw: unknown, now: number): Reward | null {
+  if (!isObject(raw) || !str(raw.id) || !str(raw.name)) return null;
+  return { id: str(raw.id), name: str(raw.name), price: Math.max(1, Math.floor(num(raw.price, 1))), createdAt: num(raw.createdAt, now) };
+}
+
+function readQuest(raw: unknown): Quest | null {
+  if (!isObject(raw) || !str(raw.id)) return null;
+  return {
+    id: str(raw.id),
+    kind: oneOf(raw.kind, ["chore", "item", "count", "points", "chores"] as const, "count"),
+    ref: strOrNull(raw.ref),
+    target: Math.max(1, Math.floor(num(raw.target, 1))),
+    text: str(raw.text),
+    bonus: Math.max(0, Math.floor(num(raw.bonus, 0))),
+  };
+}
+
+function readQuestSet(raw: unknown): QuestSet | null {
+  if (!isObject(raw) || !/^[dw]:\d{4}-\d{2}-\d{2}$/.test(str(raw.id))) return null;
+  return { id: str(raw.id), quests: array(raw.quests).map(readQuest).filter((quest) => quest !== null) };
 }
 
 function readSettings(raw: unknown): Settings {
@@ -118,6 +161,7 @@ function readSettings(raw: unknown): Settings {
     theme: oneOf(raw.theme, ["system", "light", "dark"] as const, "system"),
     lastBackupAt: numOrNull(raw.lastBackupAt),
     backupSnoozedUntil: numOrNull(raw.backupSnoozedUntil),
+    lowEnergy: raw.lowEnergy === true,
   };
 }
 
@@ -169,6 +213,21 @@ export function readBackup(text: string, now: number): { snapshot: Snapshot; exp
         array(data.activity)
           .map(readActivity)
           .filter((entry) => entry !== null),
+      ),
+      chores: unique(
+        array(data.chores)
+          .map((raw) => readChore(raw, now))
+          .filter((chore) => chore !== null),
+      ),
+      rewards: unique(
+        array(data.rewards)
+          .map((raw) => readReward(raw, now))
+          .filter((reward) => reward !== null),
+      ),
+      quests: unique(
+        array(data.quests)
+          .map(readQuestSet)
+          .filter((set) => set !== null),
       ),
       settings: readSettings(data.settings),
     },

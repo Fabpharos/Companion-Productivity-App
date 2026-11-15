@@ -50,7 +50,7 @@ export interface Completion {
  * copy takes its place with the next due date, so the archive keeps one entry
  * per time it was done.
  */
-export function completeItem(item: Item, now: number, today: string): Completion {
+export function completeItem(item: Item, now: number, today: string, points = 0): Completion {
   const done: Item = { ...item, doneAt: now, updatedAt: now, repeat: null };
   const items = [done];
   if (item.kind === "todo" && item.repeat) {
@@ -64,7 +64,7 @@ export function completeItem(item: Item, now: number, today: string): Completion
       subtasks: item.subtasks.map((step) => ({ ...step, done: false })),
     });
   }
-  const activity: Activity = { id: newId(), at: now, type: "done", itemId: item.id, kind: item.kind, text: title(item) };
+  const activity: Activity = { id: newId(), at: now, type: "done", itemId: item.id, kind: item.kind, text: title(item), points };
   return { items, activity };
 }
 

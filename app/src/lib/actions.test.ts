@@ -25,7 +25,10 @@ test("capture files entries by the rules, and undo takes them back", async () =>
   await actions.capture("an idea about the garden");
   const { items, undo } = await actions.capture("milk, eggs");
   assert.equal(items.length, 2);
-  assert.deepEqual(await texts(), [`${TODOS}:call mom`, `${INBOX}:an idea about the garden`, `${SHOPPING}:milk`, `${SHOPPING}:eggs`]);
+  assert.deepEqual(
+    (await texts()).sort(),
+    [`${TODOS}:call mom`, `${INBOX}:an idea about the garden`, `${SHOPPING}:milk`, `${SHOPPING}:eggs`].sort(),
+  );
   const todo = await byText("call mom");
   assert.deepEqual([todo.due, todo.tags], [addDays(localDate(), 1), ["family"]]);
   await undo();
@@ -37,14 +40,16 @@ test("capture inside a list takes that list's kind, and a forced note goes to No
   await actions.capture("call mom", { list });
   await actions.capture("milk", { force: "note" });
   await actions.capture("milk", { list: BUILTIN_LISTS[0] });
-  assert.deepEqual(await texts(), [`${list.id}:call mom`, `${NOTES}:milk`, `${SHOPPING}:milk`]);
+  // The three were added within the same millisecond, so their order is not meaningful.
+  assert.deepEqual((await texts()).sort(), [`${list.id}:call mom`, `${NOTES}:milk`, `${SHOPPING}:milk`].sort());
 });
 
 test("completing can be undone, including the next occurrence and the log entry", async () => {
   const { items } = await actions.capture("pay rent", { force: "todo" });
   const rent = { ...items[0]!, repeat: { every: 1, unit: "month" as const }, due: localDate() };
   await actions.saveItem(rent);
-  const undo = await actions.complete(rent);
+  const { undo, entry } = await actions.complete(rent);
+  assert.equal(entry.points, 5);
   assert.equal(await db.items.count(), 2);
   assert.equal(await db.activity.count(), 1);
   await undo();
@@ -126,6 +131,97 @@ test("a backup restores everything after the app's data is cleared", async () =>
   assert.deepEqual(after.activity, before.activity);
   assert.equal(after.settings.theme, "dark");
   assert.ok(after.settings.lastBackupAt, "restoring counts as having a backup");
+});
+
+test("a typed chore is added, and nothing is added for an empty name", async () => {
+  const added = await actions.addChore("Vacuum every 2 weeks");
+  assert.deepEqual([added?.chore.name, added?.chore.everyDays, added?.chore.lastDoneAt], ["Vacuum", 14, null]);
+  assert.equal(await actions.addChore("  "), null);
+  assert.equal(await db.chores.count(), 1);
+});
+
+test("completing a chore restarts its clock and earns its points, and undo takes both back", async () => {
+  const { chore } = (await actions.addChore("Dishes daily"))!;
+  const { undo, entry } = await actions.completeChore(chore);
+  assert.deepEqual([entry.type, entry.itemId, entry.text, entry.points], ["chore", chore.id, "Dishes", 10]);
+  const done = (await db.chores.get(chore.id))!;
+  assert.ok(done.lastDoneAt);
+  assert.equal((await actions.completeChore(done)).entry.points, 1, "doing it again at once earns a token point");
+  await db.activity.clear();
+  await undo();
+  assert.equal((await db.chores.get(chore.id))?.lastDoneAt, null);
+});
+
+test("steps earn their share, the last one completes the chore, and unticking gives the share back", async () => {
+  const { chore: bare } = (await actions.addChore("Clean kitchen"))!;
+  const chore = { ...bare, steps: ["a", "b", "c"].map((id) => ({ id, text: id.toUpperCase(), done: false })) };
+  await actions.saveChore(chore);
+  const points = async () => (await db.activity.toArray()).reduce((sum, entry) => sum + entry.points, 0);
+  const stored = async () => (await db.chores.get(chore.id))!;
+
+  const first = await actions.toggleStep(chore, "a");
+  assert.deepEqual([first?.entry.type, first?.entry.points, first?.entry.text], ["step", 3, "Clean kitchen: A"]);
+  await actions.toggleStep(await stored(), "b");
+  assert.equal(await points(), 6);
+
+  assert.equal(await actions.toggleStep(await stored(), "b"), null);
+  assert.equal(await points(), 3, "unticking returns the step's points");
+  assert.deepEqual((await stored()).steps.map((step) => step.done), [true, false, false]);
+
+  await actions.toggleStep(await stored(), "b");
+  const last = await actions.toggleStep(await stored(), "c");
+  assert.deepEqual([last?.entry.type, last?.entry.points], ["chore", 4]);
+  assert.equal(await points(), 10, "steps and completion add up to the chore's points");
+  const after = await stored();
+  assert.ok(after.lastDoneAt);
+  assert.deepEqual(after.steps.map((step) => step.done), [false, false, false]);
+
+  await last!.undo();
+  assert.deepEqual((await stored()).steps.map((step) => step.done), [true, true, false]);
+  assert.equal(await points(), 6);
+});
+
+test("quests are made once a day and once a week, then left alone", async () => {
+  await actions.addChore("Dishes daily");
+  await actions.ensureQuests("2026-11-14");
+  const first = await db.quests.toArray();
+  assert.deepEqual(first.map((set) => [set.id, set.quests.length]).sort(), [
+    ["d:2026-11-14", 3],
+    ["w:2026-11-09", 1],
+  ]);
+  await actions.addChore("Mop");
+  await actions.ensureQuests("2026-11-14");
+  assert.deepEqual(await db.quests.toArray(), first);
+  await actions.ensureQuests("2026-11-15");
+  assert.equal(await db.quests.count(), 3, "a new day in the same week adds only the day");
+});
+
+test("buying a reward spends points and keeps the reward", async () => {
+  await actions.addReward(" Movie night ", 40.9);
+  const [reward] = await db.rewards.toArray();
+  assert.deepEqual([reward?.name, reward?.price], ["Movie night", 40]);
+  const undo = await actions.buyReward(reward!);
+  assert.deepEqual((await db.activity.toArray()).map((entry) => [entry.type, entry.points, entry.text]), [["reward", -40, "Movie night"]]);
+  assert.equal(await db.rewards.count(), 1);
+  await undo();
+  assert.equal(await db.activity.count(), 0);
+});
+
+test("a backup carries chores, rewards, quests and points", async () => {
+  const { chore } = (await actions.addChore("Dishes daily"))!;
+  await actions.completeChore(chore);
+  await actions.addReward("Treat", 5);
+  await actions.ensureQuests("2026-11-14");
+  await actions.setLowEnergy(true);
+  const before = await readSnapshot();
+  const file = await actions.exportBackup();
+  await db.delete();
+  await db.open();
+  await actions.importBackup(file);
+  const after = await readSnapshot();
+  assert.deepEqual([after.chores, after.rewards, after.activity], [before.chores, before.rewards, before.activity]);
+  assert.deepEqual(after.quests.sort((a, b) => a.id.localeCompare(b.id)), before.quests.sort((a, b) => a.id.localeCompare(b.id)));
+  assert.equal(after.settings.lowEnergy, true);
 });
 
 test("a bad backup file changes nothing", async () => {
