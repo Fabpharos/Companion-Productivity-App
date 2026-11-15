@@ -14,21 +14,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Tests, type-checks and builds the app. Nothing is published unless all three pass.
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm run setup
       - run: npm test
       - run: npm run typecheck
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
 
-  # Phase 0 publishes the test pages as the whole site. Phase 1 replaces this
-  # with the built app.
   publish:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: test
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -37,10 +43,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: spikes
       - id: deploy
         uses: actions/deploy-pages@v4

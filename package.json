@@ -6,8 +6,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test \"worker/test/*.test.ts\" \"spikes/**/*.test.js\"",
-    "typecheck": "npx --yes --package typescript@5.9 tsc --project worker/tsconfig.json",
+    "setup": "npm --prefix app ci",
+    "app": "npm --prefix app run dev",
+    "build": "npm --prefix app run build",
+    "test": "node --test \"app/src/**/*.test.ts\" \"worker/test/*.test.ts\" \"spikes/**/*.test.js\"",
+    "typecheck": "npm --prefix app run check && npx --yes --package typescript@5.9 tsc --project worker/tsconfig.json",
+    "icons": "node tools/make-icons.js",
     "vapid-keys": "node worker/scripts/make-keys.ts",
     "spikes": "node tools/serve.js",
     "worker:dev": "npx --yes wrangler@4 dev --config worker/wrangler.toml",
