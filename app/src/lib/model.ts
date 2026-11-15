@@ -68,6 +68,63 @@ export interface Chore {
   steps: Subtask[];
 }
 
+export interface Trip {
+  id: string;
+  name: string;
+  destination: string;
+  /** First and last day, as local calendar dates. */
+  start: string;
+  end: string;
+  /** Three-letter currency codes: what you think in, and what is spent there. */
+  homeCurrency: string;
+  localCurrency: string;
+  /** How much local currency one unit of home currency buys, and when that was fetched or typed. */
+  rate: number | null;
+  rateAt: number | null;
+  /** The budget for the trip, in home currency. */
+  budget: number | null;
+  /** What the companion wears for this trip, as a tag such as "kimono". */
+  outfit: string;
+  createdAt: number;
+}
+
+export type TripEntryKind = "packing" | "task" | "stop" | "wish" | "expense" | "phrase" | "souvenir" | "journal";
+
+/**
+ * One thing belonging to a trip. One shape for every kind, so a wish can
+ * become an itinerary stop without losing anything. Which fields matter:
+ *   packing   text, category, done
+ *   task      text, daysBefore, done
+ *   stop      text, day, time, place, note
+ *   wish      text, place, note
+ *   expense   text, amount, day
+ *   phrase    text (in the local language), reading, meaning, category (the situation)
+ *   souvenir  text, forWhom, done
+ *   journal   text, day
+ */
+export interface TripEntry {
+  id: string;
+  tripId: string;
+  kind: TripEntryKind;
+  text: string;
+  done: boolean;
+  createdAt: number;
+  category: string | null;
+  /** A task is due this many days before the trip starts. */
+  daysBefore: number | null;
+  day: string | null;
+  /** Time of day, HH:MM. */
+  time: string | null;
+  /** A place name to look up in a maps app, or a link. */
+  place: string | null;
+  note: string;
+  /** An expense's amount, in the trip's local currency. */
+  amount: number | null;
+  reading: string | null;
+  meaning: string | null;
+  forWhom: string | null;
+}
+
 /** Something on the wish-list that points can buy. */
 export interface Reward {
   id: string;
@@ -137,6 +194,8 @@ export interface Snapshot {
   chores: Chore[];
   rewards: Reward[];
   quests: QuestSet[];
+  trips: Trip[];
+  tripEntries: TripEntry[];
   settings: Settings;
 }
 

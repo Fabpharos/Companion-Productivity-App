@@ -28,7 +28,11 @@ export type LineEvent =
   | "nothingToDo"
   | "timerEnd"
   | "reward"
-  | "tap";
+  | "tap"
+  | "tripCountdown"
+  | "tripTomorrow"
+  | "tripDay"
+  | "tripTask";
 
 export type Line = string | { text: string; bond: number };
 
@@ -36,6 +40,11 @@ export interface DialogueStyle {
   id: string;
   name: string;
   lines: Record<LineEvent, Line[]>;
+  /**
+   * Lines that replace the usual ones while the companion wears an outfit,
+   * keyed by the trip's outfit tag. Only the events listed are replaced.
+   */
+  outfits?: Record<string, Partial<Record<LineEvent, Line[]>>>;
 }
 
 export const DEFAULT_STYLE: DialogueStyle = {
@@ -78,6 +87,10 @@ export const DEFAULT_STYLE: DialogueStyle = {
     nothingToDo: ["Nothing is waiting on you. Enjoy it.", "All caught up.", "Clear for now. Well done."],
     timerEnd: ["Time's up. Stopping here counts.", "That's the timer. You showed up, and that counts."],
     reward: ["\"{name}\" is yours. Enjoy it.", "You earned \"{name}\".", "Here you go: \"{name}\"."],
+    tripCountdown: ["{n} days until {name}.", "{name} is {n} days away.", "{n} days to go until {name}."],
+    tripTomorrow: ["{name} starts tomorrow. Nearly there.", "Tomorrow: {name}."],
+    tripDay: ["Day {n} of {name}. Enjoy it.", "Day {n} of {name}. Chores can wait.", "Good day for an adventure. Day {n} of {name}."],
+    tripTask: ["Before {name}: \"{task}\" is coming up.", "One for the trip: \"{task}\"."],
     tap: [
       "I'm here.",
       "Hello.",
@@ -86,5 +99,12 @@ export const DEFAULT_STYLE: DialogueStyle = {
       { text: "We've done a lot together.", bond: 4 },
       { text: "You've come a long way since day one.", bond: 6 },
     ],
+  },
+  outfits: {
+    kimono: {
+      tripCountdown: ["{n} days until {name}. I'm practising my bow.", "{name} is {n} days away. I can't wait."],
+      tripDay: ["Ohayō. Day {n} of {name}.", "Day {n} of {name}. Let's see something new."],
+      tap: ["Konnichiwa.", "I like it here.", "Take your time. The trip is yours."],
+    },
   },
 };

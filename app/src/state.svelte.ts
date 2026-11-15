@@ -6,9 +6,21 @@
 // toast, and let the companion react.
 
 import { liveQuery } from "dexie";
+import { framing, poseImage } from "../content/companion/index.ts";
 import { DEFAULT_STYLE, type LineEvent } from "../content/dialogue.ts";
 import * as actions from "./lib/actions.ts";
-import { completionEvent, greetingEvent, nudge, say, suggestNext, type Reaction, type Vars } from "./lib/companion.ts";
+import {
+  completionEvent,
+  greetingEvent,
+  nudge,
+  outfitFor,
+  say,
+  suggestNext,
+  tripGreeting,
+  type CompanionArt,
+  type Reaction,
+  type Vars,
+} from "./lib/companion.ts";
 import { daysBetween, localDate } from "./lib/dates.ts";
 import { db, readSettings, saveSettings, type Undo } from "./lib/db.ts";
 import { milestones, summarize } from "./lib/game.ts";
@@ -24,7 +36,10 @@ import {
   type Reward,
   type Settings,
   type Theme,
+  type Trip,
+  type TripEntry,
 } from "./lib/model.ts";
+import { currentTrip, tasksComingDue, travellingOn } from "./lib/trips.ts";
 
 class Data {
   items = $state.raw<Item[]>([]);
@@ -33,12 +48,20 @@ class Data {
   rewards = $state.raw<Reward[]>([]);
   activity = $state.raw<Activity[]>([]);
   quests = $state.raw<QuestSet[]>([]);
+  trips = $state.raw<Trip[]>([]);
+  tripEntries = $state.raw<TripEntry[]>([]);
   settings = $state.raw<Settings>(DEFAULT_SETTINGS);
   ready = $state(false);
   now = $state(Date.now());
   today = $derived(localDate(this.now));
   /** Points, level, streak, bond and quests, all worked out from the activity log. */
   game = $derived(summarize(this.activity, this.quests, this.today));
+
+  /** The trip under way or next to start, and the trip under way today if there is one. */
+  trip = $derived(currentTrip(this.trips, this.today));
+  travelling = $derived(travellingOn(this.trips, this.today));
+  /** What the companion is wearing: the outfit of a trip that is close or under way. */
+  outfit = $derived(outfitFor(this.trip, this.today));
 
   list(id: string | null): List | undefined {
     return this.lists.find((list) => list.id === id);
@@ -50,6 +73,9 @@ export const data = new Data();
 export const TABS = ["today", "lists", "chores", "trips", "companion"] as const;
 export type Tab = (typeof TABS)[number];
 export type Overlay = "search" | "settings" | "archive" | null;
+
+export const TRIP_SECTIONS = ["overview", "packing", "tasks", "itinerary", "wishes", "budget", "phrases", "souvenirs", "journal"] as const;
+export type TripSection = (typeof TRIP_SECTIONS)[number];
 
 interface Toast {
   message: string;
@@ -80,6 +106,11 @@ class Ui {
   overlay = $state<Overlay>(null);
   /** The item open in the editor. */
   editId = $state<string | null>(null);
+  /** The trip open on the Trips tab, or null for the list of trips, and the part of it being shown. */
+  tripId = $state<string | null>(null);
+  tripSection = $state<TripSection>("overview");
+  /** The trip entry open in its sheet. */
+  entryId = $state<string | null>(null);
   /** The chore open in its sheet. */
   choreId = $state<string | null>(null);
   toast = $state.raw<Toast | null>(null);
@@ -96,6 +127,14 @@ class Ui {
   go(tab: Tab, listId: string | null = null) {
     this.tab = tab;
     this.listId = listId;
+    this.tripId = null;
+    this.overlay = null;
+  }
+
+  openTrip(tripId: string, section: TripSection = "overview") {
+    this.tab = "trips";
+    this.tripId = tripId;
+    this.tripSection = section;
     this.overlay = null;
   }
 }
@@ -104,7 +143,9 @@ export const ui = new Ui();
 
 /** The address for the current place, so reopening the app returns to it. */
 export function currentHash(): string {
-  return ui.tab === "lists" && ui.listId ? `#/lists/${ui.listId}` : `#/${ui.tab}`;
+  if (ui.tab === "lists" && ui.listId) return `#/lists/${ui.listId}`;
+  if (ui.tab === "trips" && ui.tripId) return `#/trips/${ui.tripId}`;
+  return `#/${ui.tab}`;
 }
 
 function readHash() {
@@ -112,6 +153,7 @@ function readHash() {
   if ((TABS as readonly string[]).includes(tab ?? "")) {
     ui.tab = tab as Tab;
     ui.listId = tab === "lists" && id ? decodeURIComponent(id) : null;
+    ui.tripId = tab === "trips" && id ? decodeURIComponent(id) : null;
   }
 }
 
@@ -141,6 +183,8 @@ export function start() {
     rewards: (await db.rewards.toArray()).sort((a, b) => a.price - b.price),
     activity: await db.activity.toArray(),
     quests: await db.quests.toArray(),
+    trips: (await db.trips.toArray()).sort((a, b) => (a.start < b.start ? -1 : 1)),
+    tripEntries: await db.tripEntries.toArray(),
     settings: await readSettings(),
   })).subscribe({
     next: (snapshot) => {
@@ -194,8 +238,18 @@ export async function undoToast() {
 
 // ---------- Companion ----------
 
+const DEFAULT_ART: CompanionArt = { image: poseImage, framing };
+
+/**
+ * The art for the companion in use. Every screen gets its pictures from here,
+ * so a custom or generated companion only has to be returned from this one place.
+ */
+export function companionArt(): CompanionArt {
+  return DEFAULT_ART;
+}
+
 export function speak(event: LineEvent, vars: Vars = {}) {
-  ui.companion = say(DEFAULT_STYLE, event, vars, data.game.bond.level, Math.random());
+  ui.companion = say(DEFAULT_STYLE, event, vars, data.game.bond.level, Math.random(), data.outfit);
 }
 
 /** The first line of a launch: a greeting, or a gentle mention of something overdue when it is the first launch of the day. */
@@ -203,9 +257,14 @@ function greet() {
   const lastOpen = remembered.get<string>("lastOpen");
   remembered.set("lastOpen", data.today);
   const { lowEnergy } = data.settings;
-  const mention = lastOpen !== data.today && lastOpen !== null ? nudge(data.chores, data.now, lowEnergy) : null;
+  const firstToday = lastOpen !== data.today;
+  // A trip comes first: its countdown days, its own days, and tasks about to fall due.
+  const trip = firstToday ? tripGreeting(data.trip, data.today, tasksComingDue(data.trips, data.tripEntries, data.today, 3)) : null;
+  // Chores go unmentioned while travelling.
+  const mention = firstToday && lastOpen !== null && !data.travelling ? nudge(data.chores, data.now, lowEnergy) : null;
+  if (trip) speak(trip.event, trip.vars);
   // Half the time the day opens with a plain greeting even when something is overdue.
-  if (mention && Math.random() < 0.5) speak(mention.event, mention.vars);
+  else if (mention && Math.random() < 0.5) speak(mention.event, mention.vars);
   else speak(greetingEvent(new Date().getHours(), lastOpen ? daysBetween(lastOpen, data.today) : 0, lowEnergy));
 }
 
@@ -215,7 +274,7 @@ export function tapCompanion() {
   if (roll < 0.25) {
     ui.wiggle++;
   } else if (roll < 0.6) {
-    const next = suggestNext(data.chores, data.items, data.now, data.today, data.settings.lowEnergy);
+    const next = suggestNext(data.travelling ? [] : data.chores, data.items, data.now, data.today, data.settings.lowEnergy);
     speak(next.event, next.vars);
   } else {
     speak("tap");
@@ -309,6 +368,23 @@ export async function toggleStep(chore: Chore, stepId: string) {
 export async function removeChore(chore: Chore) {
   if (ui.choreId === chore.id) ui.choreId = null;
   toast(`Deleted ${chore.name}`, await actions.removeChore(chore));
+}
+
+// ---------- Trips ----------
+
+export async function toggleEntry(entry: TripEntry) {
+  const result = await actions.toggleEntry(entry);
+  if (result) celebrate(result.entry, false, entry.text);
+}
+
+export async function removeEntry(entry: TripEntry) {
+  if (ui.entryId === entry.id) ui.entryId = null;
+  toast("Deleted", await actions.removeEntry(entry));
+}
+
+export async function removeTrip(trip: Trip) {
+  ui.go("trips");
+  toast(`Deleted ${trip.name}`, await actions.removeTrip(trip));
 }
 
 // ---------- Timer ----------

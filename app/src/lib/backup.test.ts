@@ -35,6 +35,22 @@ const snapshot: Snapshot = {
   ],
   rewards: [{ id: "r1", name: "Movie night", price: 40, createdAt: 2 }],
   quests: [{ id: "d:2026-11-14", quests: [{ id: "chore:c1", kind: "chore", ref: "c1", target: 1, text: 'Do "Dishes"', bonus: 5 }] }],
+  trips: [
+    {
+      id: "t1", name: "Japan", destination: "Japan", start: "2027-02-26", end: "2027-03-08", homeCurrency: "USD", localCurrency: "JPY",
+      rate: 160, rateAt: 600, budget: 3000, outfit: "kimono", createdAt: 3,
+    },
+  ],
+  tripEntries: [
+    {
+      id: "e1", tripId: "t1", kind: "stop", text: "Senso-ji", done: false, createdAt: 4, category: null, daysBefore: null, day: "2027-02-27",
+      time: "09:30", place: "Asakusa", note: "go early", amount: null, reading: null, meaning: null, forWhom: null,
+    },
+    {
+      id: "e2", tripId: "t1", kind: "phrase", text: "すみません", done: false, createdAt: 5, category: "Basics", daysBefore: null, day: null,
+      time: null, place: null, note: "", amount: null, reading: "Sumimasen", meaning: "Excuse me", forWhom: null,
+    },
+  ],
   settings: { theme: "dark", lastBackupAt: 50, backupSnoozedUntil: null, lowEnergy: true },
 };
 
@@ -111,7 +127,7 @@ test("a backup from before Phase 2 still reads, with no points and no chores", (
   };
   const { snapshot: read } = readBackup(JSON.stringify(old), 0);
   assert.deepEqual(read.activity, [{ id: "a", at: 5, type: "done", itemId: "1", kind: "todo", text: "x", points: 0 }]);
-  assert.deepEqual([read.chores, read.rewards, read.quests, read.settings.lowEnergy], [[], [], [], false]);
+  assert.deepEqual([read.chores, read.rewards, read.quests, read.trips, read.tripEntries, read.settings.lowEnergy], [[], [], [], [], [], false]);
 });
 
 test("broken Phase 2 records are repaired or dropped", () => {
@@ -128,6 +144,35 @@ test("broken Phase 2 records are repaired or dropped", () => {
   assert.deepEqual(read.chores, [{ id: "c", name: "Mop", everyDays: 1, lastDoneAt: null, createdAt: 9, effort: 3, dislike: 0, steps: [] }]);
   assert.deepEqual(read.rewards, [{ id: "r", name: "Treat", price: 1, createdAt: 9 }]);
   assert.deepEqual(read.quests, [{ id: "d:2026-11-14", quests: [{ id: "q", kind: "count", ref: null, target: 1, text: "", bonus: 0 }] }]);
+});
+
+test("broken trip records are repaired or dropped", () => {
+  const file = {
+    app: APP_ID,
+    format: 3,
+    data: {
+      trips: [
+        { id: "t", name: "Trip", start: "2027-03-08", end: "2027-03-01", homeCurrency: "dollars", localCurrency: "jpy", rate: -1, budget: "lots" },
+        { id: "undated", name: "x" },
+      ],
+      tripEntries: [
+        { id: "a", tripId: "t", kind: "stop", text: "ok", time: "25:00", day: "soon", amount: -3, daysBefore: -2.5 },
+        { id: "b", tripId: "gone", kind: "stop", text: "orphan" },
+        { id: "c", tripId: "t", kind: "teleport", text: "unknown kind" },
+      ],
+    },
+  };
+  const { snapshot: read } = readBackup(JSON.stringify(file), 9);
+  assert.deepEqual(read.trips, [
+    {
+      id: "t", name: "Trip", destination: "", start: "2027-03-08", end: "2027-03-08", homeCurrency: "USD", localCurrency: "JPY",
+      rate: null, rateAt: null, budget: null, outfit: "", createdAt: 9,
+    },
+  ]);
+  assert.deepEqual(
+    read.tripEntries.map((entry) => [entry.id, entry.time, entry.day, entry.amount, entry.daysBefore]),
+    [["a", null, null, null, 0]],
+  );
 });
 
 test("the reminder comes two weeks after the last backup, or after the first item", () => {

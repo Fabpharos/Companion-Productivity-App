@@ -2,9 +2,9 @@
 
 A Home Screen web app for one iPhone: notes, to-dos, shopping, chores and trips, built around a companion character. The full plan is in [docs/build-plan.md](docs/build-plan.md).
 
-**Current stage: Phase 2, chores and the game loop.** On top of Phase 1's notes, to-dos, shopping, capture, search, undo, archive and backup, there are now chores shaded by how overdue they are, points, levels, a streak, quests, a rewards wish-list, and a companion that reacts. Trips is a tab that says which phase brings it. Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
+**Current stage: Phase 3, trips.** The app now has notes, to-dos and shopping (Phase 1), chores, points and a companion (Phase 2), and trips with a countdown, packing list, tasks before leaving, itinerary, budget, phrase cards, souvenirs and a journal (Phase 3). Notifications are next. Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
 
-Not built yet from the plan's extras for Phase 2: habits, the weekly review, and task aging.
+Not built yet from the plan: habits, the weekly review and task aging (Phase 2 extras); dragging stops between days and general list templates (Phase 3).
 
 ## Layout
 
@@ -13,7 +13,7 @@ Not built yet from the plan's extras for Phase 2: habits, the weekly review, and
 | `app/` | The app: Svelte, TypeScript, Vite. Published to GitHub Pages |
 | `app/src/lib/` | The rules and the data layer. Plain TypeScript with a test beside each file |
 | `app/src/screens/`, `app/src/ui/` | The screens and the pieces they share |
-| `app/content/` | Plain data: grocery words and store sections, the companion's lines, and its art |
+| `app/content/` | Plain data: grocery words and store sections, the companion's lines and art, and trip templates |
 | `worker/` | The Cloudflare Worker: web push and a queue of pending messages. Used from Phase 4 |
 | `spikes/` | The Phase 0 test pages. No longer published |
 | `docs/` | The build plan and the Phase 0 results |
@@ -62,9 +62,33 @@ Nothing about the game is stored as a running total. The activity log records ea
 
 ### The companion
 
-Its lines are in `app/content/dialogue.ts`, grouped by event. Its art is in `app/content/companion/`, one image per pose. **The five SVGs there are placeholders.** To use real art, put `idle.png`, `happy.png`, `proud.png`, `sleepy.png` and `concerned.png` in that folder, all on the same canvas size with a transparent background. They replace the placeholders with no code change.
+Its lines are in `app/content/dialogue.ts`, grouped by event. Its art is in `app/content/companion/`, one image per pose.
+
+**Art contract.** This holds for the default art and for every companion image later, uploaded or generated:
+
+- A portrait canvas, taller than wide. 2:3 is expected (NovelAI's 512×768), and other shapes are measured and fitted.
+- The whole character on it, with the same canvas size for every pose.
+- A transparent background, or a plain backdrop that fills the canvas.
+- The face in roughly the same place in every pose.
+
+The art is shown two ways from the same image: whole on the Companion tab, and as a close-up of the face beside the speech bubble on Today. Where to crop the close-up is a `Framing` (`app/src/lib/portrait.ts`): the centre of the face and how much of the image's height to show. It travels with the art. Screens get art only from `companionArt()` in `state.svelte.ts`, which returns the images and their framing, so a custom or generated companion plugs in there and stores its framing in its character card.
+
+**The five SVGs in the folder are placeholders.** To use real art, put `idle.png`, `happy.png`, `proud.png`, `sleepy.png` and `concerned.png` beside them. They replace the placeholders with no code change, and the close-up switches to the framing for a standing figure. If the face sits somewhere unusual, set `framing` in `app/content/companion/index.ts`.
 
 The tone rule is tested: no line may scold or count what was missed.
+
+### Trips
+
+A trip is one record, and everything in it (a packing item, a task, a stop, an expense, a phrase card) is a trip entry of some kind, all one shape. That is why a wish becomes an itinerary stop just by being given a day.
+
+- **Templates** are in `app/content/trips.ts`. A new trip copies its template's packing list, tasks and phrase cards. Every template builds on the general one, and Japan adds its own to each.
+- **Tasks before leaving** are stored as days before departure, not as dates, so they move when the trip does.
+- **Changing the leaving date moves the whole trip**: the return date and every itinerary stop shift by the same number of days. Expenses and journal entries are records of real days and stay put.
+- **Stops open in Apple Maps** by place name, or use a pasted maps link as it is.
+- **The exchange rate** is the one thing the app fetches from the network (`rates.ts`). It sends two currency codes and nothing else, and the trip keeps the last rate so the converter works offline. A rate can also be typed in.
+- **Calendar files** (`ics.ts`) are written without a time zone, so a 9:00 stop stays at 9:00 when the phone changes zone.
+- **Travel mode** is on while a trip's dates include today: Today leads with the day's stops, quests leave chores out, and the companion does not mention them.
+- **The outfit tag** on a trip picks a set of companion lines (`outfits` in `dialogue.ts`) from a week before the trip until it ends. Later it will also pick the generated appearance.
 
 ### Quick capture rules
 

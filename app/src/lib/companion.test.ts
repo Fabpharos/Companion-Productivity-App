@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_STYLE, type DialogueStyle, type LineEvent } from "../../content/dialogue.ts";
 import { makeChore } from "./chores.ts";
-import { completionEvent, greetingEvent, nudge, say, suggestNext } from "./companion.ts";
+import { completionEvent, greetingEvent, nudge, outfitFor, say, suggestNext, tripGreeting } from "./companion.ts";
+import { makeEntry, makeTrip } from "./trips.ts";
 import { makeItem } from "./items.ts";
 import { TODOS } from "./model.ts";
 
@@ -30,7 +31,7 @@ test("every event has a line at bond level 1, and every placeholder is one the a
     );
     for (const line of lines) {
       const text = typeof line === "string" ? line : line.text;
-      for (const [, key] of text.matchAll(/\{(\w+)\}/g)) assert.ok(["name", "n", "points"].includes(key!), `${event}: {${key}}`);
+      for (const [, key] of text.matchAll(/\{(\w+)\}/g)) assert.ok(["name", "n", "points", "task"].includes(key!), `${event}: {${key}}`);
     }
   }
 });
@@ -72,6 +73,32 @@ test("the next suggestion is the most overdue chore, then a to-do, then rest", (
   assert.equal(suggestNext([fresh], [todo], NOW, TODAY, false).item?.text, "Pay rent");
   assert.equal(suggestNext([fresh], [todo], NOW, TODAY, true).event, "nothingToDo");
   assert.equal(suggestNext([], [], NOW, TODAY, false).event, "nothingToDo");
+});
+
+test("a trip is greeted on its milestone days, the day before, and every day of it", () => {
+  const japan = makeTrip({ name: "Japan", start: "2027-02-26", end: "2027-03-08", outfit: "kimono" }, 0);
+  assert.deepEqual(tripGreeting(japan, "2026-11-18", []), { event: "tripCountdown", vars: { name: "Japan", n: 100 } });
+  assert.equal(tripGreeting(japan, "2026-11-19", []), null, "an ordinary day says nothing about the trip");
+  assert.deepEqual(tripGreeting(japan, "2027-02-25", []), { event: "tripTomorrow", vars: { name: "Japan" } });
+  assert.deepEqual(tripGreeting(japan, "2027-02-28", []), { event: "tripDay", vars: { name: "Japan", n: 3 } });
+  assert.equal(tripGreeting(japan, "2027-03-09", []), null);
+  assert.equal(tripGreeting(null, "2026-11-19", []), null);
+
+  const task = { entry: makeEntry(japan.id, "task", "Get yen", {}, 0), due: "2026-11-20", late: false };
+  assert.deepEqual(tripGreeting(japan, "2026-11-19", [task]), { event: "tripTask", vars: { name: "Japan", task: "Get yen" } });
+});
+
+test("the companion dresses for a trip from a week before until it ends, and outfit lines replace the usual ones", () => {
+  const japan = makeTrip({ name: "Japan", start: "2027-02-26", end: "2027-03-08", outfit: "kimono" }, 0);
+  assert.deepEqual(
+    ["2027-02-18", "2027-02-19", "2027-03-08", "2027-03-09"].map((day) => outfitFor(japan, day)),
+    ["", "kimono", "kimono", ""],
+  );
+  assert.equal(outfitFor({ ...japan, outfit: "" }, "2027-03-01"), "");
+  const style = { ...DEFAULT_STYLE, outfits: { kimono: { tap: ["Konnichiwa."] } } };
+  assert.equal(say(style, "tap", {}, 1, 0, "kimono").text, "Konnichiwa.");
+  assert.notEqual(say(style, "tap", {}, 1, 0, "").text, "Konnichiwa.");
+  assert.equal(say(style, "done", { points: 5 }, 1, 0, "kimono").text, "Done. +5.", "events the outfit does not cover keep the usual lines");
 });
 
 test("a nudge mentions only a chore that is past due", () => {

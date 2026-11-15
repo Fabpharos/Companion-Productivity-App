@@ -8,7 +8,23 @@ import { localDate } from "./dates.ts";
 import { apply, db, readSnapshot, saveSettings, writeSnapshot, type Undo } from "./db.ts";
 import { dayQuestsId, itemPoints, makeDailyQuests, makeWeeklyQuest, remainingChorePoints, stepPoints, weekQuestsId } from "./game.ts";
 import { completeItem, isArchived, isStocked, makeItem, reopenItem, retype } from "./items.ts";
-import { homeList, INBOX, newId, type Activity, type Chore, type Item, type ItemKind, type List, type Reward } from "./model.ts";
+import type { TripTemplate } from "../../content/trips.ts";
+import {
+  homeList,
+  INBOX,
+  newId,
+  type Activity,
+  type Chore,
+  type Item,
+  type ItemKind,
+  type List,
+  type Reward,
+  type Trip,
+  type TripEntry,
+  type TripEntryKind,
+} from "./model.ts";
+import { fetchRate } from "./rates.ts";
+import { fromTemplate, makeEntry, makeTrip, moveTrip, travellingOn } from "./trips.ts";
 import { FOCUS_SLOTS } from "./today.ts";
 
 export interface Captured {
@@ -171,9 +187,10 @@ export async function toggleStep(chore: Chore, stepId: string): Promise<Complete
 
 /** Makes today's quests and this week's, if they have not been made yet. Quests are fixed once made. */
 export async function ensureQuests(today: string): Promise<void> {
-  await db.transaction("rw", db.quests, db.chores, db.items, async () => {
+  await db.transaction("rw", db.quests, db.chores, db.items, db.trips, async () => {
     const now = Date.now();
-    const chores = await db.chores.toArray();
+    // While travelling, chores are left out of the quests.
+    const chores = travellingOn(await db.trips.toArray(), today) ? [] : await db.chores.toArray();
     if (!(await db.quests.get(dayQuestsId(today)))) {
       await db.quests.put({ id: dayQuestsId(today), quests: makeDailyQuests(chores, await db.items.toArray(), today, now) });
     }
@@ -200,6 +217,75 @@ export async function buyReward(reward: Reward): Promise<Undo> {
 
 export async function setLowEnergy(lowEnergy: boolean): Promise<void> {
   await saveSettings({ lowEnergy });
+}
+
+// ---------- Trips ----------
+
+/** Creates a trip and fills it from a template: packing list, tasks before leaving, phrase cards. */
+export async function addTrip(fields: Partial<Trip> & Pick<Trip, "name" | "start" | "end">, template: TripTemplate): Promise<Trip> {
+  const now = Date.now();
+  const trip = makeTrip({ destination: template.destination, localCurrency: template.localCurrency, outfit: template.outfit, ...fields }, now);
+  await apply({ put: { trips: [trip], tripEntries: fromTemplate(template, trip.id, now) } });
+  return trip;
+}
+
+export async function saveTrip(trip: Trip): Promise<Undo> {
+  return apply({ put: { trips: [trip] } });
+}
+
+/** Moves a trip to a new start date, taking its itinerary with it. */
+export async function rescheduleTrip(trip: Trip, start: string): Promise<Undo> {
+  const moved = moveTrip(trip, await db.tripEntries.where("tripId").equals(trip.id).toArray(), start);
+  return apply({ put: { trips: [moved.trip], tripEntries: moved.stops } });
+}
+
+/** Deletes a trip and everything in it. */
+export async function removeTrip(trip: Trip): Promise<Undo> {
+  const ids = await db.tripEntries.where("tripId").equals(trip.id).primaryKeys();
+  return apply({ remove: { trips: [trip.id], tripEntries: ids } });
+}
+
+export async function addEntry(tripId: string, kind: TripEntryKind, text: string, fields: Partial<TripEntry> = {}): Promise<TripEntry | null> {
+  if (!text.trim()) return null;
+  const entry = makeEntry(tripId, kind, text.trim(), fields, Date.now());
+  await apply({ put: { tripEntries: [entry] } });
+  return entry;
+}
+
+export async function saveEntry(entry: TripEntry): Promise<Undo> {
+  return apply({ put: { tripEntries: [entry] } });
+}
+
+export async function removeEntry(entry: TripEntry): Promise<Undo> {
+  return apply({ remove: { tripEntries: [entry.id] } });
+}
+
+const TASK_POINTS = 5;
+const taskEntryId = (entry: TripEntry) => `trip:${entry.id}`;
+
+/**
+ * Ticks or unticks a packing item, souvenir or task. A task before leaving
+ * earns points like a to-do, and unticking it gives them back.
+ */
+export async function toggleEntry(entry: TripEntry): Promise<Completed | null> {
+  const toggled = { ...entry, done: !entry.done };
+  if (entry.kind !== "task") {
+    await apply({ put: { tripEntries: [toggled] } });
+    return null;
+  }
+  if (entry.done) {
+    await apply({ put: { tripEntries: [toggled] }, remove: { activity: [taskEntryId(entry)] } });
+    return null;
+  }
+  const log: Activity = { id: taskEntryId(entry), at: Date.now(), type: "done", itemId: entry.id, kind: "todo", text: entry.text, points: TASK_POINTS };
+  return { undo: await apply({ put: { tripEntries: [toggled], activity: [log] } }), entry: log };
+}
+
+/** Fetches the trip's exchange rate and saves it on the trip. Throws when offline or the codes are unknown. */
+export async function updateRate(trip: Trip): Promise<number> {
+  const rate = await fetchRate(trip.homeCurrency, trip.localCurrency);
+  await apply({ put: { trips: [{ ...trip, rate, rateAt: Date.now() }] } });
+  return rate;
 }
 
 // ---------- Backup ----------

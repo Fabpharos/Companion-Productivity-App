@@ -16,6 +16,8 @@ import {
   type Reward,
   type Settings,
   type Snapshot,
+  type Trip,
+  type TripEntry,
 } from "./model.ts";
 
 class AppDb extends Dexie {
@@ -25,6 +27,8 @@ class AppDb extends Dexie {
   chores!: Table<Chore, string>;
   rewards!: Table<Reward, string>;
   quests!: Table<QuestSet, string>;
+  trips!: Table<Trip, string>;
+  tripEntries!: Table<TripEntry, string>;
   meta!: Table<{ key: string; value: unknown }, string>;
 
   constructor() {
@@ -43,6 +47,8 @@ class AppDb extends Dexie {
             entry.points ??= 0;
           }),
       );
+    // Phase 3: trips and everything that belongs to them.
+    this.version(3).stores({ trips: "id", tripEntries: "id, tripId" });
     this.on("populate", (tx) => {
       void tx.table("lists").bulkAdd(BUILTIN_LISTS);
     });
@@ -58,8 +64,10 @@ interface Records {
   chores: Chore;
   rewards: Reward;
   quests: QuestSet;
+  trips: Trip;
+  tripEntries: TripEntry;
 }
-const TABLES = ["items", "lists", "activity", "chores", "rewards", "quests"] as const;
+const TABLES = ["items", "lists", "activity", "chores", "rewards", "quests", "trips", "tripEntries"] as const;
 const recordTables = () => TABLES.map((name) => db.table(name));
 
 export interface Change {
@@ -114,6 +122,8 @@ export async function readSnapshot(): Promise<Snapshot> {
     chores: await db.chores.toArray(),
     rewards: await db.rewards.toArray(),
     quests: await db.quests.toArray(),
+    trips: await db.trips.toArray(),
+    tripEntries: await db.tripEntries.toArray(),
     settings: await readSettings(),
   }));
 }

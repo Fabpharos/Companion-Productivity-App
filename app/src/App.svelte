@@ -9,20 +9,20 @@
   import Search from "./screens/Search.svelte";
   import Settings from "./screens/Settings.svelte";
   import Today from "./screens/Today.svelte";
+  import Trip from "./screens/Trip.svelte";
+  import Trips from "./screens/Trips.svelte";
   import { currentHash, data, TABS, ui, undoToast, type Tab } from "./state.svelte.ts";
   import CaptureBar from "./ui/CaptureBar.svelte";
   import ChoreSheet from "./ui/ChoreSheet.svelte";
+  import EntrySheet from "./ui/EntrySheet.svelte";
   import TimerBar from "./ui/TimerBar.svelte";
   import Icon from "./ui/Icon.svelte";
   import ItemEditor from "./ui/ItemEditor.svelte";
 
   const LABELS: Record<Tab, string> = { today: "Today", lists: "Lists", chores: "Chores", trips: "Trips", companion: "Companion" };
-  const COMING: Partial<Record<Tab, { phase: number; text: string }>> = {
-    trips: { phase: 3, text: "Packing lists, itineraries, budgets and phrase cards for each trip, starting with Japan." },
-  };
 
   const list = $derived(ui.tab === "lists" ? data.list(ui.listId) : undefined);
-  const coming = $derived(COMING[ui.tab]);
+  const trip = $derived(ui.tab === "trips" ? data.trips.find((other) => other.id === ui.tripId) : undefined);
 
   $effect(() => {
     // The address follows the screen without adding history, so there is no back stack to fall out of the app through.
@@ -52,6 +52,9 @@
     {#if list}
       <button class="icon-btn" style="margin-left:-12px" aria-label="All lists" onclick={() => ui.go("lists")}><Icon name="back" /></button>
       <h1>{list.name}</h1>
+    {:else if trip}
+      <button class="icon-btn" style="margin-left:-12px" aria-label="All trips" onclick={() => ui.go("trips")}><Icon name="back" /></button>
+      <h1>{trip.name}</h1>
     {:else if ui.tab === "today"}
       <h1>{weekdayName(data.today)}<span class="sub">{formatDate(data.today, data.today).slice(5)}</span></h1>
     {:else}
@@ -74,17 +77,16 @@
       {:else}
         <Lists />
       {/if}
+    {:else if ui.tab === "trips"}
+      {#if trip}
+        {#key trip.id}<Trip {trip} />{/key}
+      {:else}
+        <Trips />
+      {/if}
     {:else if ui.tab === "chores"}
       <Chores />
     {:else if ui.tab === "companion"}
       <CompanionTab />
-    {:else if coming}
-      <div class="placeholder">
-        <span class="glyph"><Icon name={ui.tab} size={34} /></span>
-        <h2>{LABELS[ui.tab]} arrive in Phase {coming.phase}</h2>
-        <p>{coming.text}</p>
-        <p class="small">The capture box above already works from here.</p>
-      </div>
     {/if}
   </main>
 
@@ -103,6 +105,9 @@
 {#if ui.overlay === "search"}<Search />{/if}
 {#if ui.overlay === "settings"}<Settings />{/if}
 {#if ui.overlay === "archive"}<Archive />{/if}
+{#if ui.entryId}
+  {#key ui.entryId}<EntrySheet id={ui.entryId} />{/key}
+{/if}
 {#if ui.choreId}
   {#key ui.choreId}<ChoreSheet id={ui.choreId} />{/key}
 {/if}

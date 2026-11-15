@@ -2,7 +2,9 @@
   // The full view of one item. Every change is saved as it is made; there is
   // no save button to forget.
   import { SECTION_ORDER } from "../../content/groceries.ts";
+  import { deliver } from "../files.ts";
   import { addDays, formatDate, localDate } from "../lib/dates.ts";
+  import { makeCalendar } from "../lib/ics.ts";
   import { isOpen, parseTags, retype, title } from "../lib/items.ts";
   import { newId, type Item, type ItemKind, type Priority } from "../lib/model.ts";
   import { FOCUS_SLOTS } from "../lib/today.ts";
@@ -86,6 +88,14 @@
     newStep = "";
   }
 
+  /** Hands the due date to the phone's calendar as a file. */
+  async function toCalendar() {
+    if (!draft?.due) return;
+    const [first, ...rest] = draft.text.split("\n");
+    const file = makeCalendar([{ uid: draft.id, title: first!.trim(), date: draft.due, notes: rest.join("\n") }], Date.now());
+    if (await deliver(file, "to-do.ics", "text/calendar")) toast("Calendar file created");
+  }
+
   function close() {
     save();
     ui.editId = null;
@@ -162,7 +172,10 @@
                 aria-pressed={draft.due === addDays(data.today, 1)}
                 onclick={() => change({ due: addDays(data.today, 1) })}>Tomorrow</button
               >
-              {#if draft.due}<button class="chip" onclick={() => change({ due: null })}>No date</button>{/if}
+              {#if draft.due}
+                <button class="chip" onclick={() => change({ due: null })}>No date</button>
+                <button class="chip" onclick={toCalendar}>To calendar</button>
+              {/if}
             </div>
           </div>
           <label class="field">

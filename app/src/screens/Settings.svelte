@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { deliver } from "../files.ts";
   import { BackupError, backupFileName, readBackup } from "../lib/backup.ts";
   import { formatDate, localDate } from "../lib/dates.ts";
   import type { Theme } from "../lib/model.ts";
@@ -23,33 +24,11 @@
     data.settings.lastBackupAt ? formatDate(localDate(data.settings.lastBackupAt), data.today) : "Never",
   );
 
-  /** Hands the file to the share sheet where there is one, and downloads it where there is not. */
-  async function deliver(text: string, name: string): Promise<boolean> {
-    // iOS decides what can be shared by file type, and is stricter about JSON than plain text.
-    for (const type of ["application/json", "text/plain"]) {
-      const file = new File([text], name, { type });
-      if (!navigator.canShare?.({ files: [file] })) continue;
-      try {
-        await navigator.share({ files: [file] });
-        return true;
-      } catch (reason) {
-        // Closing the share sheet without saving is not a backup.
-        if (reason instanceof DOMException && reason.name === "AbortError") return false;
-      }
-    }
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-    link.download = name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-    return true;
-  }
-
   async function exportNow() {
     busy = true;
     error = "";
     try {
-      if (await deliver(await actions.exportBackup(), backupFileName(Date.now()))) {
+      if (await deliver(await actions.exportBackup(), backupFileName(Date.now()), "application/json")) {
         await actions.markBackedUp();
         toast("Backup file created");
       }

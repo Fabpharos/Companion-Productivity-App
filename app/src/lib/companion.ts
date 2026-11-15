@@ -4,11 +4,24 @@ import type { DialogueStyle, LineEvent } from "../../content/dialogue.ts";
 import { dueness } from "./chores.ts";
 import type { GameEvent } from "./game.ts";
 import { title } from "./items.ts";
-import type { Chore, Item } from "./model.ts";
+import type { Chore, Item, Trip } from "./model.ts";
+import type { Framing } from "./portrait.ts";
 import { suggestFocus } from "./today.ts";
+import { countdown, COUNTDOWN_MILESTONES, type TaskRow } from "./trips.ts";
 
 export const POSES = ["idle", "happy", "proud", "sleepy", "concerned"] as const;
 export type Pose = (typeof POSES)[number];
+
+/**
+ * A set of companion art: an image for each pose, and where the face is in
+ * them. The default art is one of these. An uploaded image or a character
+ * card's generated images are others, and the screens draw any of them the
+ * same way.
+ */
+export interface CompanionArt {
+  image(pose: Pose): string;
+  framing: Framing;
+}
 
 export interface Reaction {
   pose: Pose;
@@ -38,11 +51,25 @@ const POSE: Record<LineEvent, Pose> = {
   timerEnd: "proud",
   reward: "happy",
   tap: "idle",
+  tripCountdown: "happy",
+  tripTomorrow: "happy",
+  tripDay: "happy",
+  tripTask: "idle",
 };
 
+/** How close a trip must be for the companion to dress for it. */
+const OUTFIT_DAYS = 7;
+
+/** The outfit the companion wears today: the tag of a trip that is under way or about to start, else none. */
+export function outfitFor(trip: Trip | null, today: string): string {
+  if (!trip || !trip.outfit) return "";
+  const { phase, days } = countdown(trip, today);
+  return phase === "underway" || (phase === "upcoming" && days <= OUTFIT_DAYS) ? trip.outfit : "";
+}
+
 /** One line for an event, chosen from those the bond level has unlocked. `random` is a number from 0 up to 1. */
-export function say(style: DialogueStyle, event: LineEvent, vars: Vars, bond: number, random: number): Reaction {
-  const unlocked = style.lines[event]
+export function say(style: DialogueStyle, event: LineEvent, vars: Vars, bond: number, random: number, outfit = ""): Reaction {
+  const unlocked = (style.outfits?.[outfit]?.[event] ?? style.lines[event])
     .filter((line) => typeof line === "string" || line.bond <= bond)
     .map((line) => (typeof line === "string" ? line : line.text));
   const template = unlocked[Math.floor(random * unlocked.length)] ?? "";
@@ -91,6 +118,22 @@ export function suggestNext(chores: Chore[], items: Item[], now: number, today: 
   const item = lowEnergy ? undefined : suggestFocus(items.map((i) => ({ ...i, focusOn: null })), today)[0];
   if (item) return { event: "suggestTodo", vars: { name: title(item) }, item };
   return { event: "nothingToDo", vars: {} };
+}
+
+/**
+ * What to say about a trip at the first launch of a day: the day of the trip
+ * while travelling, the countdown on its milestone days, or a task before
+ * leaving that is due within three days. Null on an ordinary day.
+ */
+export function tripGreeting(trip: Trip | null, today: string, comingDue: TaskRow[]): { event: LineEvent; vars: Vars } | null {
+  if (!trip) return null;
+  const { phase, days } = countdown(trip, today);
+  if (phase === "underway") return { event: "tripDay", vars: { name: trip.name, n: 1 - days } };
+  if (phase !== "upcoming") return null;
+  if (days === 1) return { event: "tripTomorrow", vars: { name: trip.name } };
+  if (COUNTDOWN_MILESTONES.includes(days)) return { event: "tripCountdown", vars: { name: trip.name, n: days } };
+  const task = comingDue[0];
+  return task ? { event: "tripTask", vars: { name: trip.name, task: task.entry.text } } : null;
 }
 
 /** A gentle mention of the most overdue chore, or null if nothing is overdue. Never more than a mention. */

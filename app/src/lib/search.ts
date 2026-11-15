@@ -1,7 +1,7 @@
 // One search across every item, active and archived.
 
 import { isArchived, title } from "./items.ts";
-import type { Item, List } from "./model.ts";
+import type { Item, List, Trip, TripEntry } from "./model.ts";
 
 export interface Hit {
   item: Item;
@@ -47,4 +47,27 @@ export function search(items: Item[], lists: List[], query: string): Hit[] {
     )
     .slice(0, LIMIT)
     .map(({ hit }) => hit);
+}
+
+export interface TripHit {
+  entry: TripEntry;
+  trip: Trip;
+}
+
+/** The same search over everything in every trip: packing, tasks, stops, phrases and the rest. */
+export function searchTrips(entries: TripEntry[], trips: Trip[], query: string): TripHit[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+  const tripById = new Map(trips.map((trip) => [trip.id, trip]));
+  const hits: TripHit[] = [];
+  for (const entry of entries) {
+    const trip = tripById.get(entry.tripId);
+    if (!trip) continue;
+    const body = [entry.text, entry.note, entry.place, entry.category, entry.reading, entry.meaning, entry.forWhom, trip.name]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase();
+    if (terms.every((term) => body.includes(term))) hits.push({ entry, trip });
+  }
+  return hits.sort((a, b) => b.entry.createdAt - a.entry.createdAt).slice(0, LIMIT);
 }

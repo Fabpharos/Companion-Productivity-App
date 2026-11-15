@@ -4,6 +4,7 @@ import { beforeEach, test } from "node:test";
 import * as actions from "./actions.ts";
 import { addDays, localDate } from "./dates.ts";
 import { db, readSettings, readSnapshot, saveSettings } from "./db.ts";
+import { GENERAL, JAPAN } from "../../content/trips.ts";
 import { BUILTIN_LISTS, INBOX, NOTES, SHOPPING, TODOS } from "./model.ts";
 
 beforeEach(async () => {
@@ -222,6 +223,67 @@ test("a backup carries chores, rewards, quests and points", async () => {
   assert.deepEqual([after.chores, after.rewards, after.activity], [before.chores, before.rewards, before.activity]);
   assert.deepEqual(after.quests.sort((a, b) => a.id.localeCompare(b.id)), before.quests.sort((a, b) => a.id.localeCompare(b.id)));
   assert.equal(after.settings.lowEnergy, true);
+});
+
+test("a trip starts filled from its template, and deleting it removes everything in it", async () => {
+  const trip = await actions.addTrip({ name: "Japan", start: "2027-02-26", end: "2027-03-08" }, JAPAN);
+  assert.deepEqual([trip.destination, trip.localCurrency, trip.outfit, trip.homeCurrency], ["Japan", "JPY", "kimono", "USD"]);
+  const entries = await db.tripEntries.toArray();
+  assert.ok(entries.length > 50 && entries.every((entry) => entry.tripId === trip.id));
+  const other = await actions.addTrip({ name: "Weekend", start: "2026-12-05", end: "2026-12-06" }, GENERAL);
+  const undo = await actions.removeTrip(trip);
+  assert.deepEqual(
+    (await db.trips.toArray()).map((t) => t.name),
+    ["Weekend"],
+  );
+  assert.ok((await db.tripEntries.toArray()).every((entry) => entry.tripId === other.id));
+  await undo();
+  assert.equal(await db.trips.count(), 2);
+  assert.equal(await db.tripEntries.where("tripId").equals(trip.id).count(), entries.length);
+});
+
+test("rescheduling a trip moves its itinerary, and undo puts both back", async () => {
+  const trip = await actions.addTrip({ name: "Japan", start: "2027-02-26", end: "2027-03-08" }, GENERAL);
+  const stop = (await actions.addEntry(trip.id, "stop", "Shrine", { day: "2027-02-27" }))!;
+  const undo = await actions.rescheduleTrip(trip, "2027-03-05");
+  assert.deepEqual([(await db.trips.get(trip.id))?.start, (await db.trips.get(trip.id))?.end], ["2027-03-05", "2027-03-15"]);
+  assert.equal((await db.tripEntries.get(stop.id))?.day, "2027-03-06");
+  await undo();
+  assert.equal((await db.trips.get(trip.id))?.start, "2027-02-26");
+  assert.equal((await db.tripEntries.get(stop.id))?.day, "2027-02-27");
+});
+
+test("ticking a task before leaving earns points, and unticking returns them", async () => {
+  const trip = await actions.addTrip({ name: "Trip", start: "2027-02-26", end: "2027-03-08" }, GENERAL);
+  const task = (await actions.addEntry(trip.id, "task", " Renew passport ", { daysBefore: 60 }))!;
+  assert.equal(task.text, "Renew passport");
+  assert.equal(await actions.addEntry(trip.id, "task", "   "), null);
+
+  const done = await actions.toggleEntry(task);
+  assert.deepEqual([done?.entry.type, done?.entry.points, done?.entry.itemId], ["done", 5, task.id]);
+  assert.equal((await db.tripEntries.get(task.id))?.done, true);
+  assert.equal(await actions.toggleEntry((await db.tripEntries.get(task.id))!), null);
+  assert.equal(await db.activity.count(), 0);
+
+  const sock = (await actions.addEntry(trip.id, "packing", "Socks", { category: "Clothes" }))!;
+  assert.equal(await actions.toggleEntry(sock), null, "packing earns nothing");
+  assert.equal((await db.tripEntries.get(sock.id))?.done, true);
+  assert.equal(await db.activity.count(), 0);
+});
+
+test("a backup carries trips and their entries", async () => {
+  const trip = await actions.addTrip({ name: "Japan", start: "2027-02-26", end: "2027-03-08", budget: 3000 }, JAPAN);
+  await actions.addEntry(trip.id, "stop", "Senso-ji", { day: "2027-02-27", time: "09:30", place: "Asakusa" });
+  await actions.addEntry(trip.id, "expense", "Ramen", { amount: 1200, day: "2027-02-27" });
+  const before = await readSnapshot();
+  const file = await actions.exportBackup();
+  await db.delete();
+  await db.open();
+  await actions.importBackup(file);
+  const after = await readSnapshot();
+  const byId = <T extends { id: string }>(rows: T[]) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(after.trips, before.trips);
+  assert.deepEqual(byId(after.tripEntries), byId(before.tripEntries));
 });
 
 test("a bad backup file changes nothing", async () => {

@@ -23,11 +23,13 @@ import {
   type Settings,
   type Snapshot,
   type Subtask,
+  type Trip,
+  type TripEntry,
 } from "./model.ts";
 
 export const APP_ID = "companion-productivity-app";
 /** Raise this when the shape of the stored data changes, and teach `readBackup` the old shape. */
-export const BACKUP_FORMAT = 2;
+export const BACKUP_FORMAT = 3;
 export const BACKUP_EVERY_DAYS = 14;
 
 const DAY = 86_400_000;
@@ -155,6 +157,54 @@ function readQuestSet(raw: unknown): QuestSet | null {
   return { id: str(raw.id), quests: array(raw.quests).map(readQuest).filter((quest) => quest !== null) };
 }
 
+const currency = (value: unknown, fallback: string): string => (/^[A-Za-z]{3}$/.test(str(value)) ? str(value).toUpperCase() : fallback);
+const positive = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null);
+
+function readTrip(raw: unknown, now: number): Trip | null {
+  if (!isObject(raw) || !str(raw.id) || !str(raw.name) || !isDate(raw.start)) return null;
+  return {
+    id: str(raw.id),
+    name: str(raw.name),
+    destination: str(raw.destination),
+    start: raw.start,
+    end: isDate(raw.end) && raw.end >= raw.start ? raw.end : raw.start,
+    homeCurrency: currency(raw.homeCurrency, "USD"),
+    localCurrency: currency(raw.localCurrency, ""),
+    rate: positive(raw.rate),
+    rateAt: numOrNull(raw.rateAt),
+    budget: positive(raw.budget),
+    outfit: str(raw.outfit),
+    createdAt: num(raw.createdAt, now),
+  };
+}
+
+const ENTRY_KINDS = ["packing", "task", "stop", "wish", "expense", "phrase", "souvenir", "journal"] as const;
+const TIME = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+function readTripEntry(raw: unknown, tripIds: Set<string>, now: number): TripEntry | null {
+  // An entry whose trip is gone has nowhere to be shown.
+  if (!isObject(raw) || !str(raw.id) || typeof raw.text !== "string" || !tripIds.has(str(raw.tripId))) return null;
+  if (!ENTRY_KINDS.includes(raw.kind as TripEntry["kind"])) return null;
+  return {
+    id: str(raw.id),
+    tripId: str(raw.tripId),
+    kind: raw.kind as TripEntry["kind"],
+    text: raw.text,
+    done: raw.done === true,
+    createdAt: num(raw.createdAt, now),
+    category: strOrNull(raw.category),
+    daysBefore: numOrNull(raw.daysBefore) === null ? null : Math.max(0, Math.floor(num(raw.daysBefore, 0))),
+    day: isDate(raw.day) ? raw.day : null,
+    time: TIME.test(str(raw.time)) ? str(raw.time) : null,
+    place: strOrNull(raw.place),
+    note: str(raw.note),
+    amount: positive(raw.amount),
+    reading: strOrNull(raw.reading),
+    meaning: strOrNull(raw.meaning),
+    forWhom: strOrNull(raw.forWhom),
+  };
+}
+
 function readSettings(raw: unknown): Settings {
   if (!isObject(raw)) return { ...DEFAULT_SETTINGS };
   return {
@@ -198,6 +248,13 @@ export function readBackup(text: string, now: number): { snapshot: Snapshot; exp
   const lists = [...BUILTIN_LISTS, ...custom];
   const listIds = new Set(lists.map((list) => list.id));
 
+  const trips = unique(
+    array(data.trips)
+      .map((raw) => readTrip(raw, now))
+      .filter((trip) => trip !== null),
+  );
+  const tripIds = new Set(trips.map((trip) => trip.id));
+
   const exported = Date.parse(str(file.exportedAt));
   const exportedAt = Number.isFinite(exported) ? exported : now;
   return {
@@ -228,6 +285,12 @@ export function readBackup(text: string, now: number): { snapshot: Snapshot; exp
         array(data.quests)
           .map(readQuestSet)
           .filter((set) => set !== null),
+      ),
+      trips,
+      tripEntries: unique(
+        array(data.tripEntries)
+          .map((raw) => readTripEntry(raw, tripIds, now))
+          .filter((entry) => entry !== null),
       ),
       settings: readSettings(data.settings),
     },

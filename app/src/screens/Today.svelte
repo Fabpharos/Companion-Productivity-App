@@ -1,8 +1,11 @@
 <script lang="ts">
   import { backupReminderDue } from "../lib/backup.ts";
   import { INBOX, type Item } from "../lib/model.ts";
+  import { describeDue, formatDate } from "../lib/dates.ts";
   import { FOCUS_SLOTS, suggestFocus, todayView } from "../lib/today.ts";
-  import { actions, data, toast, ui } from "../state.svelte.ts";
+  import { countdown, itinerary, mapLink, tasksComingDue } from "../lib/trips.ts";
+  import { actions, data, toast, toggleEntry, ui } from "../state.svelte.ts";
+  import Icon from "../ui/Icon.svelte";
   import Companion from "../ui/Companion.svelte";
   import ItemRow from "../ui/ItemRow.svelte";
   import Quests from "../ui/Quests.svelte";
@@ -12,6 +15,12 @@
   const emptySlots = $derived(Math.max(0, FOCUS_SLOTS - view.focus.length));
   const backupDue = $derived(backupReminderDue(data.settings, data.items, data.now));
   const quiet = $derived(!view.focus.length && !view.overdue.length && !view.dueToday.length && !view.upcoming.length);
+
+  const trip = $derived(data.trip);
+  const tripCount = $derived(trip ? countdown(trip, data.today) : null);
+  /** While travelling, today's stops lead the screen. */
+  const stops = $derived(data.travelling ? (itinerary(data.travelling, data.tripEntries).find((day) => day.day === data.today)?.stops ?? []) : []);
+  const tripTasks = $derived(tasksComingDue(data.trips, data.tripEntries, data.today));
 
   async function suggest() {
     toast(`Picked ${suggestions.length} for today`, await actions.focusAll(suggestions));
@@ -31,6 +40,49 @@
 {/snippet}
 
 <Companion />
+
+{#if trip && tripCount}
+  <button class="trip-card" onclick={() => ui.openTrip(trip.id, data.travelling ? "itinerary" : "overview")}>
+    <strong>{trip.name} · {tripCount.text}</strong>
+    <span>{formatDate(trip.start, data.today)} to {formatDate(trip.end, data.today)}</span>
+  </button>
+{/if}
+
+{#if data.travelling}
+  <div class="section-head"><h2>Today's plan</h2></div>
+  <div class="card">
+    {#each stops as stop (stop.id)}
+      <div class="row">
+        <button class="body" onclick={() => (ui.entryId = stop.id)}>
+          <span class="title">{#if stop.time}<span class="time">{stop.time}</span>{/if}{stop.text}</span>
+          {#if stop.place || stop.note}<span class="preview">{[stop.place, stop.note].filter(Boolean).join(" · ")}</span>{/if}
+        </button>
+        <a class="side on" style="color:var(--accent)" href={mapLink(stop)} target="_blank" rel="noopener" aria-label="Open {stop.text} in Maps">
+          <Icon name="trips" size={20} />
+        </a>
+      </div>
+    {:else}
+      <p class="empty">Nothing planned for today. A free day.</p>
+    {/each}
+  </div>
+{/if}
+
+{#if tripTasks.length}
+  <div class="section-head"><h2>Before the trip</h2><span class="count">{tripTasks.length}</span></div>
+  <div class="card">
+    {#each tripTasks as row (row.entry.id)}
+      <div class="row">
+        <button class="check" role="checkbox" aria-checked="false" aria-label="Tick" onclick={() => toggleEntry(row.entry)}>
+          <span class="box"><Icon name="check" size={16} /></span>
+        </button>
+        <button class="body" onclick={() => (ui.entryId = row.entry.id)}>
+          <span class="title">{row.entry.text}</span>
+          <span class="meta"><span class:late={row.late}>{describeDue(row.due, data.today)}</span><span>{row.trip.name}</span></span>
+        </button>
+      </div>
+    {/each}
+  </div>
+{/if}
 
 {#if backupDue}
   <div class="banner">

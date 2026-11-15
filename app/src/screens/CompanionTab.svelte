@@ -22,7 +22,7 @@
   }
 </script>
 
-<Companion large />
+<Companion whole />
 
 <div class="card" style="margin-top:16px;padding:12px 14px">
   <div style="display:flex;align-items:baseline;gap:8px">
