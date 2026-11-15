@@ -1,6 +1,6 @@
 # Phase 0 results
 
-Status: **test pages built, not yet run on the phone.** The tables below are filled in from the phone.
+Status: **Phase 0 complete (Nov 14, 2026).** NovelAI works directly from the page, and push from the Worker reaches the Home Screen app.
 
 ## What was learned while building (Nov 14, 2026)
 
@@ -20,31 +20,43 @@ These come from reading two client libraries ([novelai-python](https://github.co
 
 ## Test A: NovelAI from the browser
 
-Run on: _phone model, iOS version, date_
+**Result: every call works directly from a page. No relay is needed.**
 
-Paste the table from the page's "Copy results" button here.
+Run on: iPhone, iOS 18.7, Firefox for iOS (WebKit), Nov 14, 2026, from `https://fabpharos.github.io` in a browser tab.
 
 | Test | Route | Body | Path | Outcome | ms | Anlas | Usage bar | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Account and Anlas | Direct | – | | | | | | |
-| V5 image | Direct | multipart | | | | | | |
-| V5 image | Direct | json | | | | | | |
-| V4.5 image | Direct | json | | | | | | |
-| Text reply | Direct | json | | | | | | |
+| Account and Anlas | Direct | – | /user/subscription | Works (HTTP 200) | 388 | – | – | Tier 3, 8008 Anlas |
+| V5 image | Direct | multipart | /ai/generate-image-stream | Works (HTTP 200) | 1031 | 8008 → 8008 | `{"percent":100,"purchasedPercent":0,"isNegative":false,"timeUntilNextPercent":6048}` | 23 stream events: 22 intermediate, 1 final. Final image 526,300 bytes, image/png |
+| V4.5 image | Direct | json | /ai/generate-image-stream | Works (HTTP 200) | 2388 | 8008 → 8008 | same | 23 stream events: 22 intermediate, 1 final. Final image 566,264 bytes, image/png |
+| Text reply | Direct | json | /ai/generate | Works (HTTP 200) | 1894 | – | – | Reply ran past the closing quote into a new scene (see below) |
 
-Only if something above is blocked, repeat it with "Through the Worker" selected.
+**Working requests:** the unedited bodies in [spikes/novelai/presets.js](../spikes/novelai/presets.js): `v5Body` sent as a multipart form with the JSON in a part named `request`, `v45Body` as plain JSON, `textBody` as plain JSON.
 
-**Working request for V5:** _paste the body that worked_
+**What this settles**
 
-**Working request for V4.5:** _paste the body that worked_
+- NovelAI accepts image, account and text requests sent straight from a GitHub Pages page on the phone. The token goes only to NovelAI.
+- V5 works with the multipart body on the streaming endpoint. Both models answer with the framed MessagePack stream, and the final event carries a PNG.
+- A 512×768, 23-step image cost no Anlas on either model, and the V5 usage bar still read 100% afterwards.
 
-**Working request for text:** _paste the body that worked_
+**Not tested**
 
-**Decision:** _direct calls, or the Worker relays (which calls)_
+- V5 with a plain JSON body. Not needed, since multipart works.
+- Running from the Home Screen app. This run was in a browser tab. The rules NovelAI applies are the same either way, so no difference is expected.
+- Transparent background, and sizes above 512×768.
+
+**Carried into Phase 6**
+
+- The text model does not stop at the end of the companion's line. The reply was `It's nice to get chores done during the day. It will save us some time tonight." *** Her friend just finished the laundry, the fourth chore of the day. T…`. The planned trim (cut at the first closing quote or line break) is required, not optional, and `max_length` can be lower.
+- Usage is reported as a percentage bar, not a count, so the spending guard should read `usage.isNegative` and `usage.percent` alongside Anlas.
+
+**Decision:** the app calls NovelAI directly. The Worker's relay route stays unused and is removed in Phase 4 unless something changes.
 
 ## Test B: Push to the Home Screen app
 
-Run on: _phone model, iOS version, date_
+**Result: works.** Reported by Sam on Nov 14, 2026, on the same iPhone (iOS 18.7), with the Worker deployed to Cloudflare.
+
+The per-step log was not captured, so the table below is unfilled. The overall report was that the test "works well".
 
 | Step | Result |
 | --- | --- |
@@ -56,9 +68,7 @@ Run on: _phone model, iOS version, date_
 | Scheduled time versus arrival time | |
 | Tapping the notification opens the app and shows the banner | |
 
-Paste the page's log here.
-
-**Decision:** _notification design in Phase 4 confirmed, or what is in the way_
+**Decision:** the Phase 4 notification design stands: the Worker stores the subscription and a queue, and a one-minute timer sends what is due.
 
 ## Design notes carried into later phases
 

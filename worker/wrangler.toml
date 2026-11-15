@@ -10,7 +10,7 @@ crons = ["* * * * *"]
 # folder) and paste the id it prints below.
 [[kv_namespaces]]
 binding = "STORE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "51b99a95299e4720ba6c48ca9a4aa3a5"
 
 [vars]
 # "*" during Phase 0. Set to the GitHub Pages origin (https://<user>.github.io)
