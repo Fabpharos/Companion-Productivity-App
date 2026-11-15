@@ -3,7 +3,7 @@
   // no save button to forget.
   import { SECTION_ORDER } from "../../content/groceries.ts";
   import { deliver } from "../files.ts";
-  import { addDays, formatDate, localDate } from "../lib/dates.ts";
+  import { addDays, formatDate, isTime, localDate } from "../lib/dates.ts";
   import { makeCalendar } from "../lib/ics.ts";
   import { isOpen, parseTags, retype, title } from "../lib/items.ts";
   import { newId, type Item, type ItemKind, type Priority } from "../lib/model.ts";
@@ -92,7 +92,7 @@
   async function toCalendar() {
     if (!draft?.due) return;
     const [first, ...rest] = draft.text.split("\n");
-    const file = makeCalendar([{ uid: draft.id, title: first!.trim(), date: draft.due, notes: rest.join("\n") }], Date.now());
+    const file = makeCalendar([{ uid: draft.id, title: first!.trim(), date: draft.due, time: draft.time ?? undefined, notes: rest.join("\n") }], Date.now());
     if (await deliver(file, "to-do.ics", "text/calendar")) toast("Calendar file created");
   }
 
@@ -173,11 +173,27 @@
                 onclick={() => change({ due: addDays(data.today, 1) })}>Tomorrow</button
               >
               {#if draft.due}
-                <button class="chip" onclick={() => change({ due: null })}>No date</button>
+                <button class="chip" onclick={() => change({ due: null, time: null })}>No date</button>
                 <button class="chip" onclick={toCalendar}>To calendar</button>
               {/if}
             </div>
           </div>
+          {#if draft.due}
+            <div class="field">
+              <label class="label" for="remind-at">Remind at</label>
+              <input
+                id="remind-at"
+                class="grow input"
+                type="time"
+                value={draft.time ?? ""}
+                onchange={(event) => change({ time: isTime(event.currentTarget.value) ? event.currentTarget.value : null })}
+              />
+              {#if draft.time}<button class="chip" onclick={() => change({ time: null })}>Clear</button>{/if}
+            </div>
+            {#if draft.time && !data.connection.on}
+              <p class="muted small" style="padding:0 14px 10px 110px">Turn on notifications in Settings to be reminded.</p>
+            {/if}
+          {/if}
           <label class="field">
             <span class="label">Repeat</span>
             <select class="grow" value={repeatKey} onchange={(event) => setRepeat(event.currentTarget.value)}>

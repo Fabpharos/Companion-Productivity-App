@@ -28,6 +28,25 @@ export function addDays(date: string, days: number): string {
   return localDate(new Date(y, m - 1, d + days));
 }
 
+const TIME = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+export function isTime(value: unknown): value is string {
+  return typeof value === "string" && TIME.test(value);
+}
+
+/** The moment a time of day (HH:MM) falls on a date, on this phone's clock. */
+export function atLocal(date: string, time: string): number {
+  const [y, m, d] = parts(date);
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Date(y, m - 1, d, hours, minutes).getTime();
+}
+
+/** "08:00" as "8:00 AM". */
+export function formatTime(time: string): string {
+  const [hours, minutes] = time.split(":").map(Number);
+  return `${hours! % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours! < 12 ? "AM" : "PM"}`;
+}
+
 /** Adds months, keeping the day where the month has it and using the last day where it doesn't. */
 export function addMonths(date: string, months: number): string {
   const [y, m, d] = parts(date);

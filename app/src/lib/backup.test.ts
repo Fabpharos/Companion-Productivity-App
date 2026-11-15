@@ -15,6 +15,7 @@ const snapshot: Snapshot = {
         listId: "trip",
         text: "Order eSIM",
         due: "2027-02-19",
+        time: "09:15",
         repeat: { every: 2, unit: "week" },
         priority: 2,
         tags: ["japan"],
@@ -51,7 +52,21 @@ const snapshot: Snapshot = {
       time: null, place: null, note: "", amount: null, reading: "Sumimasen", meaning: "Excuse me", forWhom: null,
     },
   ],
-  settings: { theme: "dark", lastBackupAt: 50, backupSnoozedUntil: null, lowEnergy: true },
+  settings: {
+    theme: "dark",
+    lastBackupAt: 50,
+    backupSnoozedUntil: null,
+    lowEnergy: true,
+    notify: {
+      kinds: { task: true, morning: false, chore: true, streak: false, trip: true, backup: true },
+      morningAt: "07:30",
+      eveningAt: "21:00",
+      quietFrom: "23:00",
+      quietTo: "06:00",
+      dailyCap: 2,
+      privateText: true,
+    },
+  },
 };
 
 test("a backup reads back exactly as it was written", () => {
@@ -144,6 +159,22 @@ test("broken Phase 2 records are repaired or dropped", () => {
   assert.deepEqual(read.chores, [{ id: "c", name: "Mop", everyDays: 1, lastDoneAt: null, createdAt: 9, effort: 3, dislike: 0, steps: [] }]);
   assert.deepEqual(read.rewards, [{ id: "r", name: "Treat", price: 1, createdAt: 9 }]);
   assert.deepEqual(read.quests, [{ id: "d:2026-11-14", quests: [{ id: "q", kind: "count", ref: null, target: 1, text: "", bonus: 0 }] }]);
+});
+
+test("a backup from before Phase 4 gets no reminder times and the default notification choices", () => {
+  const old = {
+    app: APP_ID,
+    format: 3,
+    data: { items: [{ id: "1", text: "x", kind: "todo", listId: "todos", due: "2027-01-01" }], settings: { theme: "light" } },
+  };
+  const { snapshot: read } = readBackup(JSON.stringify(old), 0);
+  assert.equal(read.items[0]?.time, null);
+  assert.deepEqual(read.settings.notify, DEFAULT_SETTINGS.notify);
+
+  const odd = { ...old, format: 4, data: { items: [{ id: "1", text: "x", time: "9am" }], settings: { notify: { kinds: { chore: false, bogus: true }, morningAt: "25:00", dailyCap: 99 } } } };
+  const { snapshot: fixed } = readBackup(JSON.stringify(odd), 0);
+  assert.equal(fixed.items[0]?.time, null);
+  assert.deepEqual(fixed.settings.notify, { ...DEFAULT_SETTINGS.notify, kinds: { ...DEFAULT_SETTINGS.notify.kinds, chore: false }, dailyCap: 10 });
 });
 
 test("broken trip records are repaired or dropped", () => {

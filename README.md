@@ -2,7 +2,7 @@
 
 A Home Screen web app for one iPhone: notes, to-dos, shopping, chores and trips, built around a companion character. The full plan is in [docs/build-plan.md](docs/build-plan.md).
 
-**Current stage: Phase 3, trips.** The app now has notes, to-dos and shopping (Phase 1), chores, points and a companion (Phase 2), and trips with a countdown, packing list, tasks before leaving, itinerary, budget, phrase cards, souvenirs and a journal (Phase 3). Notifications are next. Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
+**Current stage: Phase 4, notifications.** The app has notes, to-dos and shopping (Phase 1), chores, points and a companion (Phase 2), trips (Phase 3), and notifications sent through the Worker (Phase 4). The custom companion is next. Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
 
 Not built yet from the plan: habits, the weekly review and task aging (Phase 2 extras); dragging stops between days and general list templates (Phase 3).
 
@@ -14,7 +14,7 @@ Not built yet from the plan: habits, the weekly review and task aging (Phase 2 e
 | `app/src/lib/` | The rules and the data layer. Plain TypeScript with a test beside each file |
 | `app/src/screens/`, `app/src/ui/` | The screens and the pieces they share |
 | `app/content/` | Plain data: grocery words and store sections, the companion's lines and art, and trip templates |
-| `worker/` | The Cloudflare Worker: web push and a queue of pending messages. Used from Phase 4 |
+| `worker/` | The Cloudflare Worker: holds the list of coming notifications and sends each when it is due |
 | `spikes/` | The Phase 0 test pages. No longer published |
 | `docs/` | The build plan and the Phase 0 results |
 | `tools/` | Local helpers |
@@ -90,6 +90,22 @@ A trip is one record, and everything in it (a packing item, a task, a stop, an e
 - **Travel mode** is on while a trip's dates include today: Today leads with the day's stops, quests leave chores out, and the companion does not mention them.
 - **The outfit tag** on a trip picks a set of companion lines (`outfits` in `dialogue.ts`) from a week before the trip until it ends. Later it will also pick the generated appearance.
 
+### Notifications
+
+A web app on iPhone cannot schedule its own notifications, so the Worker sends them. It decides nothing.
+
+- **The phone works out the list.** `plan` in `notify.ts` builds every notification for the next two weeks from the data, as if nothing more gets done. That is exactly right while the app stays closed, because the data only changes when it is open. Each change makes a new list, which replaces the Worker's whole list (`PUT /reminders`). There is no per-reminder create, edit or delete to keep in step.
+- **The Worker holds** one push subscription and that list: for each entry a time, a title and a line of text, where to open, and the icon badge number. Once a minute it sends what has come due. An entry is marked sent before it is sent, so a failure is dropped and never repeated.
+- **Kinds:** a task reminder (a to-do with a due date and a "Remind at" time), the morning summary, a chore nudge on the day a chore goes past due, the streak saver, trip tasks on the day they are due, and the backup reminder. With the morning summary off, trip countdown marks arrive on their own.
+- **The streak saver** only comes on an evening when leaving the day empty would shorten the streak. A day the week's grace still covers gets none.
+- **Quiet hours** move a notification to the moment they end. **The daily cap** holds back nudges (chores, streak, trips, backup), never a task reminder or the morning summary.
+- **Wording** comes from the companion's lines (`push…` events in `dialogue.ts`), picked by the notification's id so it does not change from one list to the next.
+- **Hide the text** sends "You have a reminder" for everything, so no wording leaves the phone.
+- **The Worker's address and key** are entered once in Settings and stored on the phone, outside the backup file. Turning notifications off deletes the subscription and the list from the Worker.
+- **Tapping a notification** opens the app at an address such as `#/item/<id>`. The service worker's notification code is `app/public/push-sw.js`, loaded by the generated service worker.
+
+Differences from the build plan: the Worker stores no repeat rules, because the phone sends the next two weeks already worked out. If the app is not opened for two weeks, notifications stop until it is.
+
 ### Quick capture rules
 
 In order: a shopping lead-in followed only by groceries ("buy milk") makes shopping entries; a leading verb ("call", "pay") makes a to-do, and a day word at the end ("tomorrow", "friday") sets its due date; text that is only groceries makes shopping entries, one per item; anything else is a note in the Inbox. `#word` becomes a tag. Inside a list, entries take that list's kind. The chips under the capture box re-file the last capture with one tap.
@@ -100,7 +116,7 @@ On the Chores tab the capture box adds a chore instead. "Vacuum weekly" and "Cha
 
 ## Rules for this codebase
 
-- All user data stays on the phone. The Worker holds one push subscription and a queue of reminder titles and times.
+- All user data stays on the phone. The Worker holds one push subscription and the list of coming notifications: times, titles and one line of text each.
 - The app must work with the Worker unreachable and with NovelAI switched off.
 - The NovelAI token is stored only on the phone and sent only to NovelAI.
 - Each feature area is its own module with tests for its rules.
@@ -108,7 +124,15 @@ On the Chores tab the capture box adds a chore instead. "Vacuum weekly" and "Cha
 
 ## Deploying the Worker
 
-Not needed until Phase 4. With a Cloudflare account, from the project folder:
+The Worker was set up in Phase 0 (the KV namespace id is in `worker/wrangler.toml`, and the secrets are stored in Cloudflare). After a change to `worker/`, publish it:
+
+```
+npm run worker:deploy
+```
+
+Then, in the Home Screen app: Settings, Notifications, enter the Worker's address and the `APP_KEY`, and turn notifications on. "Test in 1 minute" checks delivery with the app closed.
+
+To set up a Worker from nothing, with a Cloudflare account:
 
 ```
 npx wrangler login
@@ -126,8 +150,6 @@ npx wrangler secret put APP_KEY
 npx wrangler secret put VAPID_SUBJECT
 ```
 
-`VAPID_SUBJECT` is a contact address the push service can use, written as `mailto:you@example.com`.
+`VAPID_SUBJECT` is a contact address the push service can use, written as `mailto:you@example.com`. `ALLOWED_ORIGINS` in `wrangler.toml` lists the pages that may call the Worker.
 
-```
-npm run worker:deploy
-```
+The relay to NovelAI that Phase 0 added is gone, since the app calls NovelAI directly. The "Through the Worker" option on the Phase 0 NovelAI test page no longer works.

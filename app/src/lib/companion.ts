@@ -55,6 +55,13 @@ const POSE: Record<LineEvent, Pose> = {
   tripTomorrow: "happy",
   tripDay: "happy",
   tripTask: "idle",
+  pushMorning: "idle",
+  pushTask: "idle",
+  pushChore: "idle",
+  pushChores: "idle",
+  pushStreak: "idle",
+  pushTripTask: "idle",
+  pushBackup: "idle",
 };
 
 /** How close a trip must be for the companion to dress for it. */

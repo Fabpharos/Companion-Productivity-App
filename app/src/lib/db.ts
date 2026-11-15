@@ -5,11 +5,14 @@
 // makes every completion and delete undoable.
 
 import Dexie, { type Table } from "dexie";
+import { readNotify } from "./backup.ts";
 import {
   BUILTIN_LISTS,
   DEFAULT_SETTINGS,
+  NO_CONNECTION,
   type Activity,
   type Chore,
+  type Connection,
   type Item,
   type List,
   type QuestSet,
@@ -49,6 +52,15 @@ class AppDb extends Dexie {
       );
     // Phase 3: trips and everything that belongs to them.
     this.version(3).stores({ trips: "id", tripEntries: "id, tripId" });
+    // Phase 4: a reminder time on items.
+    this.version(4).upgrade((tx) =>
+      tx
+        .table("items")
+        .toCollection()
+        .modify((item: Partial<Item>) => {
+          item.time ??= null;
+        }),
+    );
     this.on("populate", (tx) => {
       void tx.table("lists").bulkAdd(BUILTIN_LISTS);
     });
@@ -105,7 +117,19 @@ export async function apply(change: Change): Promise<Undo> {
 
 export async function readSettings(): Promise<Settings> {
   const row = await db.meta.get("settings");
-  return { ...DEFAULT_SETTINGS, ...(row?.value as Partial<Settings> | undefined) };
+  const stored = row?.value as Partial<Settings> | undefined;
+  // Notification choices are filled in one by one, so a choice added later gets its default.
+  return { ...DEFAULT_SETTINGS, ...stored, notify: readNotify(stored?.notify) };
+}
+
+/** Where notifications are sent from. Kept apart from the settings, so it is never in a backup and a restore leaves it alone. */
+export async function readConnection(): Promise<Connection> {
+  const row = await db.meta.get("connection");
+  return { ...NO_CONNECTION, ...(row?.value as Partial<Connection> | undefined) };
+}
+
+export async function saveConnection(connection: Connection): Promise<void> {
+  await db.meta.put({ key: "connection", value: connection });
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {

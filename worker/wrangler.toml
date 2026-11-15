@@ -13,9 +13,9 @@ binding = "STORE"
 id = "51b99a95299e4720ba6c48ca9a4aa3a5"
 
 [vars]
-# "*" during Phase 0. Set to the GitHub Pages origin (https://<user>.github.io)
-# once the app has a permanent address.
-ALLOWED_ORIGINS = "*"
+# The pages allowed to call this Worker: the published app, and the app and
+# test pages run locally. Every request also needs the APP_KEY secret.
+ALLOWED_ORIGINS = "https://fabpharos.github.io,http://localhost:5173,http://localhost:4174,http://localhost:4173"
 
 # Secrets, set with `npx wrangler secret put <NAME>`, never written in this file:
 #   APP_KEY            shared secret the app sends as X-App-Key

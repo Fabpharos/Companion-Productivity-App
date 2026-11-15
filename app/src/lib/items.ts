@@ -15,6 +15,7 @@ export function makeItem(fields: Partial<Item> & Pick<Item, "kind" | "text" | "l
     doneAt: null,
     pinned: false,
     due: null,
+    time: null,
     repeat: null,
     priority: 0,
     subtasks: [],

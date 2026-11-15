@@ -11,7 +11,7 @@
   import Today from "./screens/Today.svelte";
   import Trip from "./screens/Trip.svelte";
   import Trips from "./screens/Trips.svelte";
-  import { currentHash, data, TABS, ui, undoToast, type Tab } from "./state.svelte.ts";
+  import { currentHash, data, showBadge, syncSoon, TABS, ui, undoToast, type Tab } from "./state.svelte.ts";
   import CaptureBar from "./ui/CaptureBar.svelte";
   import ChoreSheet from "./ui/ChoreSheet.svelte";
   import EntrySheet from "./ui/EntrySheet.svelte";
@@ -27,6 +27,19 @@
   $effect(() => {
     // The address follows the screen without adding history, so there is no back stack to fall out of the app through.
     history.replaceState(null, "", currentHash());
+  });
+
+  $effect(() => {
+    // Any change to what is coming goes to the Worker. The app works the same if it cannot be reached.
+    void data.plan;
+    void data.connection;
+    syncSoon();
+  });
+
+  $effect(() => {
+    void data.badge;
+    void data.connection;
+    showBadge();
   });
 
   $effect(() => {
@@ -111,7 +124,8 @@
 {#if ui.choreId}
   {#key ui.choreId}<ChoreSheet id={ui.choreId} />{/key}
 {/if}
-{#if ui.editId}
+<!-- Opened from a notification, the item is named before the data has loaded. The editor waits for it. -->
+{#if ui.editId && data.ready}
   {#key ui.editId}<ItemEditor id={ui.editId} />{/key}
 {/if}
 

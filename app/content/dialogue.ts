@@ -32,7 +32,14 @@ export type LineEvent =
   | "tripCountdown"
   | "tripTomorrow"
   | "tripDay"
-  | "tripTask";
+  | "tripTask"
+  | "pushMorning"
+  | "pushTask"
+  | "pushChore"
+  | "pushChores"
+  | "pushStreak"
+  | "pushTripTask"
+  | "pushBackup";
 
 export type Line = string | { text: string; bond: number };
 
@@ -91,6 +98,15 @@ export const DEFAULT_STYLE: DialogueStyle = {
     tripTomorrow: ["{name} starts tomorrow. Nearly there.", "Tomorrow: {name}."],
     tripDay: ["Day {n} of {name}. Enjoy it.", "Day {n} of {name}. Chores can wait.", "Good day for an adventure. Day {n} of {name}."],
     tripTask: ["Before {name}: \"{task}\" is coming up.", "One for the trip: \"{task}\"."],
+    // Notifications. Each is the line under a title that already names the thing:
+    // the task, the chore, the trip. {task} is a short list of names.
+    pushMorning: ["Good morning.", "Good morning. Here's today.", "Morning. Here's the day."],
+    pushTask: ["It's time for this one.", "This one is up now.", "You asked me to remind you."],
+    pushChore: ["Could use some attention. Five minutes would do it.", "Ready when you have a moment.", "Has been waiting patiently. No rush."],
+    pushChores: ["Ready when you are: {task}.", "A few could use some attention: {task}."],
+    pushStreak: ["One small thing today keeps {n} days going.", "{n} days running. Anything small counts today.", "A small win tonight keeps your {n} days going."],
+    pushTripTask: ["Due today before the trip: {task}.", "For the trip, today: {task}."],
+    pushBackup: ["It has been two weeks. A fresh backup takes one tap.", "Time for a new backup file. One tap in Settings."],
     tap: [
       "I'm here.",
       "Hello.",

@@ -1,7 +1,7 @@
 <script lang="ts">
   // One item in a list. Tap the text to open it, tap the circle to complete it,
   // swipe right to complete or left to delete.
-  import { describeDue, describeRepeat } from "../lib/dates.ts";
+  import { describeDue, describeRepeat, formatTime } from "../lib/dates.ts";
   import { isOpen, title } from "../lib/items.ts";
   import type { Item } from "../lib/model.ts";
   import { complete, data, remove, reopen, toggleFocus, ui } from "../state.svelte.ts";
@@ -101,7 +101,7 @@
           {#if item.pinned}<span><Icon name="pin" size={13} />Pinned</span>{/if}
           {#if item.due}
             <span class:late={open && item.due < data.today} class:soon={open && item.due === data.today}>
-              {describeDue(item.due, data.today)}
+              {describeDue(item.due, data.today)}{item.time ? `, ${formatTime(item.time)}` : ""}
             </span>
           {/if}
           {#if item.repeat}<span><Icon name="repeat" size={13} />{describeRepeat(item.repeat)}</span>{/if}

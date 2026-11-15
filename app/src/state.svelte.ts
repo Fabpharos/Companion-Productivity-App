@@ -22,16 +22,19 @@ import {
   type Vars,
 } from "./lib/companion.ts";
 import { daysBetween, localDate } from "./lib/dates.ts";
-import { db, readSettings, saveSettings, type Undo } from "./lib/db.ts";
+import { db, readConnection, readSettings, saveConnection, saveSettings, type Undo } from "./lib/db.ts";
 import { milestones, summarize } from "./lib/game.ts";
 import { title } from "./lib/items.ts";
 import {
   DEFAULT_SETTINGS,
+  NO_CONNECTION,
   type Activity,
   type Chore,
+  type Connection,
   type Item,
   type ItemKind,
   type List,
+  type NotifySettings,
   type QuestSet,
   type Reward,
   type Settings,
@@ -39,7 +42,9 @@ import {
   type Trip,
   type TripEntry,
 } from "./lib/model.ts";
+import { badgeCount, plan, toReminders } from "./lib/notify.ts";
 import { currentTrip, tasksComingDue, travellingOn } from "./lib/trips.ts";
+import { PushError, sendReminders, sendTest, setBadge, subscribe, unsubscribe } from "./push.ts";
 
 class Data {
   items = $state.raw<Item[]>([]);
@@ -51,6 +56,8 @@ class Data {
   trips = $state.raw<Trip[]>([]);
   tripEntries = $state.raw<TripEntry[]>([]);
   settings = $state.raw<Settings>(DEFAULT_SETTINGS);
+  /** Where notifications are sent from, and whether this phone is subscribed. */
+  connection = $state.raw<Connection>(NO_CONNECTION);
   ready = $state(false);
   now = $state(Date.now());
   today = $derived(localDate(this.now));
@@ -62,6 +69,10 @@ class Data {
   travelling = $derived(travellingOn(this.trips, this.today));
   /** What the companion is wearing: the outfit of a trip that is close or under way. */
   outfit = $derived(outfitFor(this.trip, this.today));
+  /** The notifications coming in the next two weeks, as the Worker will be told. */
+  plan = $derived(plan(this, this.now, { style: DEFAULT_STYLE, bond: this.game.bond.level }));
+  /** The number on the app icon: to-dos due today or earlier. */
+  badge = $derived(badgeCount(this.items, this.today));
 
   list(id: string | null): List | undefined {
     return this.lists.find((list) => list.id === id);
@@ -99,6 +110,12 @@ export interface Timer {
   announced: boolean;
 }
 
+export interface Sync {
+  state: "idle" | "ok" | "error";
+  message: string;
+  at: number | null;
+}
+
 class Ui {
   tab = $state<Tab>("today");
   /** The list open on the Lists tab, or null for the index of lists. */
@@ -123,6 +140,8 @@ class Ui {
   timer = $state.raw<Timer | null>(null);
   /** The time, updated every second while a timer runs. */
   clock = $state(Date.now());
+  /** How the last hand-over of notifications to the Worker went. */
+  sync = $state.raw<Sync>({ state: "idle", message: "", at: null });
 
   go(tab: Tab, listId: string | null = null) {
     this.tab = tab;
@@ -148,12 +167,18 @@ export function currentHash(): string {
   return `#/${ui.tab}`;
 }
 
-function readHash() {
-  const [, tab, id] = location.hash.split("/");
-  if ((TABS as readonly string[]).includes(tab ?? "")) {
-    ui.tab = tab as Tab;
-    ui.listId = tab === "lists" && id ? decodeURIComponent(id) : null;
-    ui.tripId = tab === "trips" && id ? decodeURIComponent(id) : null;
+/** Goes to the place an address names. Used at launch, and when a notification is tapped. */
+export function openHash(hash: string) {
+  const [, tab, rawId, section] = hash.split("/");
+  const id = rawId ? decodeURIComponent(rawId) : null;
+  if (tab === "item" && id) {
+    ui.go("today");
+    ui.editId = id;
+  } else if (tab === "settings") {
+    ui.overlay = "settings";
+  } else if ((TABS as readonly string[]).includes(tab ?? "")) {
+    ui.go(tab as Tab, tab === "lists" ? id : null);
+    if (tab === "trips" && id) ui.openTrip(id, (TRIP_SECTIONS as readonly string[]).includes(section ?? "") ? (section as TripSection) : "overview");
   }
 }
 
@@ -175,7 +200,10 @@ const remembered = {
 };
 
 export function start() {
-  readHash();
+  openHash(location.hash);
+  navigator.serviceWorker?.addEventListener("message", (event) => {
+    if (event.data?.type === "open" && typeof event.data.hash === "string") openHash(event.data.hash);
+  });
   liveQuery(async () => ({
     items: await db.items.toArray(),
     lists: (await db.lists.toArray()).sort((a, b) => a.order - b.order),
@@ -186,6 +214,7 @@ export function start() {
     trips: (await db.trips.toArray()).sort((a, b) => (a.start < b.start ? -1 : 1)),
     tripEntries: await db.tripEntries.toArray(),
     settings: await readSettings(),
+    connection: await readConnection(),
   })).subscribe({
     next: (snapshot) => {
       const first = !data.ready;
@@ -413,6 +442,82 @@ export async function buyReward(reward: Reward) {
 
 export function setTheme(theme: Theme) {
   void saveSettings({ theme });
+}
+
+// ---------- Notifications ----------
+
+export function setNotify(patch: Partial<NotifySettings>) {
+  void saveSettings({ notify: { ...data.settings.notify, ...patch } });
+}
+
+const failure = (reason: unknown) => (reason instanceof PushError ? reason.message : "Something went wrong. Nothing was changed.");
+
+/** Subscribes this phone through the Worker at the address given. Returns what went wrong, or null. */
+export async function enableNotifications(url: string, key: string): Promise<string | null> {
+  const connection = { url: url.trim(), key: key.trim(), on: true };
+  try {
+    await subscribe(connection, true);
+  } catch (reason) {
+    return failure(reason);
+  }
+  await saveConnection(connection);
+  return null;
+}
+
+/** Turns notifications off. The address and key are kept, so turning them back on is one tap. */
+export async function disableNotifications() {
+  const connection = data.connection;
+  await saveConnection({ ...connection, on: false });
+  remembered.set("synced", null);
+  ui.sync = { state: "idle", message: "", at: null };
+  await unsubscribe(connection);
+}
+
+export async function testNotification(delaySeconds: number): Promise<string | null> {
+  try {
+    await sendTest(data.connection, delaySeconds);
+    return null;
+  } catch (reason) {
+    return failure(reason);
+  }
+}
+
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
+let resubscribed = false;
+
+/**
+ * Hands the Worker the current list of notifications, a moment after the last
+ * change, and only when the list differs from the one it already has.
+ */
+export function syncSoon() {
+  clearTimeout(syncTimer);
+  if (!data.ready || !data.connection.on) return;
+  syncTimer = setTimeout(() => void syncNow(), 2000);
+}
+
+async function syncNow() {
+  const connection = data.connection;
+  const reminders = toReminders(data.plan);
+  const signature = JSON.stringify([connection.url, reminders]);
+  if (remembered.get<string>("synced") === signature) return;
+  try {
+    const { subscribed } = await sendReminders(connection, reminders);
+    // The Worker forgets a subscription the push service has withdrawn. One quiet attempt to renew it.
+    if (!subscribed && !resubscribed) {
+      resubscribed = true;
+      await subscribe(connection, false);
+    } else if (!subscribed) {
+      throw new PushError("This phone's subscription has lapsed. Turn notifications off and on again.");
+    }
+    remembered.set("synced", signature);
+    ui.sync = { state: "ok", message: "", at: Date.now() };
+  } catch (reason) {
+    ui.sync = { state: "error", message: failure(reason), at: Date.now() };
+  }
+}
+
+export function showBadge() {
+  if (data.ready) setBadge(data.connection.on ? data.badge : 0);
 }
 
 export { actions };

@@ -31,6 +31,8 @@ export interface Item {
   pinned: boolean;
   /** Local calendar date, YYYY-MM-DD. */
   due: string | null;
+  /** Time of day on the due date to be reminded, HH:MM. Only means something with a due date. */
+  time: string | null;
   repeat: Repeat | null;
   priority: Priority;
   subtasks: Subtask[];
@@ -156,6 +158,25 @@ export interface QuestSet {
 
 export type Theme = "system" | "light" | "dark";
 
+export const NOTIFY_KINDS = ["task", "morning", "chore", "streak", "trip", "backup"] as const;
+export type NotifyKind = (typeof NOTIFY_KINDS)[number];
+
+/** Which notifications are wanted and when. Times are HH:MM on the phone's clock. */
+export interface NotifySettings {
+  kinds: Record<NotifyKind, boolean>;
+  /** When the morning summary arrives. */
+  morningAt: string;
+  /** When the streak saver arrives. */
+  eveningAt: string;
+  /** Nothing arrives between these times: it waits until the quiet hours end. The same time twice means no quiet hours. */
+  quietFrom: string;
+  quietTo: string;
+  /** The most nudges in one day. Task reminders and the morning summary are not nudges. */
+  dailyCap: number;
+  /** Sends "You have a reminder" in place of any text, so no task wording leaves the phone. */
+  privateText: boolean;
+}
+
 export interface Settings {
   theme: Theme;
   lastBackupAt: number | null;
@@ -163,6 +184,7 @@ export interface Settings {
   backupSnoozedUntil: number | null;
   /** Shows only easy chores and has the companion speak more gently. */
   lowEnergy: boolean;
+  notify: NotifySettings;
 }
 
 export type ActivityType = "done" | "chore" | "step" | "reward";
@@ -211,12 +233,38 @@ export const BUILTIN_LISTS: List[] = [
   { id: NOTES, name: "Notes", kind: "note", builtin: true, order: 3, createdAt: 0 },
 ];
 
+export const DEFAULT_NOTIFY: NotifySettings = {
+  kinds: { task: true, morning: true, chore: true, streak: true, trip: true, backup: true },
+  morningAt: "08:00",
+  eveningAt: "20:00",
+  quietFrom: "22:00",
+  quietTo: "07:00",
+  dailyCap: 3,
+  privateText: false,
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   lastBackupAt: null,
   backupSnoozedUntil: null,
   lowEnergy: false,
+  notify: DEFAULT_NOTIFY,
 };
+
+/**
+ * Where this phone's notifications are sent from. It is about this phone, not
+ * part of the data: it is never written to a backup, and the key is a secret.
+ */
+export interface Connection {
+  /** The Worker's address. */
+  url: string;
+  /** The Worker's shared secret. */
+  key: string;
+  /** True once this phone has subscribed and the Worker has the subscription. */
+  on: boolean;
+}
+
+export const NO_CONNECTION: Connection = { url: "", key: "", on: false };
 
 /** The built-in list an item of this kind goes to when nothing else says where. */
 export function homeList(kind: ItemKind): string {

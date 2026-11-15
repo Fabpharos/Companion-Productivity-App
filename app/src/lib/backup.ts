@@ -4,17 +4,20 @@
 // field with defaults for whatever is missing, which is also how a file from
 // an older version of the app is brought up to date.
 
-import { isDate, localDate } from "./dates.ts";
+import { isDate, isTime, localDate } from "./dates.ts";
 import {
   BUILTIN_LISTS,
+  DEFAULT_NOTIFY,
   DEFAULT_SETTINGS,
   INBOX,
+  NOTIFY_KINDS,
   type Activity,
   type Chore,
   type Item,
   type ItemKind,
   type List,
   type ListKind,
+  type NotifySettings,
   type Priority,
   type Quest,
   type QuestSet,
@@ -29,7 +32,7 @@ import {
 
 export const APP_ID = "companion-productivity-app";
 /** Raise this when the shape of the stored data changes, and teach `readBackup` the old shape. */
-export const BACKUP_FORMAT = 3;
+export const BACKUP_FORMAT = 4;
 export const BACKUP_EVERY_DAYS = 14;
 
 const DAY = 86_400_000;
@@ -84,6 +87,7 @@ function readItem(raw: unknown, listIds: Set<string>, now: number): Item | null 
     doneAt: numOrNull(raw.doneAt),
     pinned: raw.pinned === true,
     due: isDate(raw.due) ? raw.due : null,
+    time: isTime(raw.time) ? raw.time : null,
     repeat: readRepeat(raw.repeat),
     priority: Math.min(3, Math.max(0, Math.floor(num(raw.priority, 0)))) as Priority,
     subtasks: array(raw.subtasks).map(readSubtask).filter((step) => step !== null),
@@ -179,7 +183,6 @@ function readTrip(raw: unknown, now: number): Trip | null {
 }
 
 const ENTRY_KINDS = ["packing", "task", "stop", "wish", "expense", "phrase", "souvenir", "journal"] as const;
-const TIME = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 
 function readTripEntry(raw: unknown, tripIds: Set<string>, now: number): TripEntry | null {
   // An entry whose trip is gone has nowhere to be shown.
@@ -195,13 +198,29 @@ function readTripEntry(raw: unknown, tripIds: Set<string>, now: number): TripEnt
     category: strOrNull(raw.category),
     daysBefore: numOrNull(raw.daysBefore) === null ? null : Math.max(0, Math.floor(num(raw.daysBefore, 0))),
     day: isDate(raw.day) ? raw.day : null,
-    time: TIME.test(str(raw.time)) ? str(raw.time) : null,
+    time: isTime(raw.time) ? raw.time : null,
     place: strOrNull(raw.place),
     note: str(raw.note),
     amount: positive(raw.amount),
     reading: strOrNull(raw.reading),
     meaning: strOrNull(raw.meaning),
     forWhom: strOrNull(raw.forWhom),
+  };
+}
+
+/** Notification choices, with the default for anything missing or malformed. Also used for what is stored on the phone. */
+export function readNotify(raw: unknown): NotifySettings {
+  if (!isObject(raw)) return { ...DEFAULT_NOTIFY };
+  const kinds = isObject(raw.kinds) ? raw.kinds : {};
+  const time = (value: unknown, fallback: string) => (isTime(value) ? value : fallback);
+  return {
+    kinds: Object.fromEntries(NOTIFY_KINDS.map((kind) => [kind, kinds[kind] !== false])) as NotifySettings["kinds"],
+    morningAt: time(raw.morningAt, DEFAULT_NOTIFY.morningAt),
+    eveningAt: time(raw.eveningAt, DEFAULT_NOTIFY.eveningAt),
+    quietFrom: time(raw.quietFrom, DEFAULT_NOTIFY.quietFrom),
+    quietTo: time(raw.quietTo, DEFAULT_NOTIFY.quietTo),
+    dailyCap: Math.min(10, Math.max(0, Math.floor(num(raw.dailyCap, DEFAULT_NOTIFY.dailyCap)))),
+    privateText: raw.privateText === true,
   };
 }
 
@@ -212,6 +231,7 @@ function readSettings(raw: unknown): Settings {
     lastBackupAt: numOrNull(raw.lastBackupAt),
     backupSnoozedUntil: numOrNull(raw.backupSnoozedUntil),
     lowEnergy: raw.lowEnergy === true,
+    notify: readNotify(raw.notify),
   };
 }
 

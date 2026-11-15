@@ -5,6 +5,7 @@
   import type { Theme } from "../lib/model.ts";
   import { actions, data, setTheme, toast, ui } from "../state.svelte.ts";
   import Icon from "../ui/Icon.svelte";
+  import NotifySettings from "../ui/NotifySettings.svelte";
 
   const THEMES: { theme: Theme; label: string }[] = [
     { theme: "system", label: "Match phone" },
@@ -81,6 +82,8 @@
         <button aria-pressed={data.settings.theme === theme} onclick={() => setTheme(theme)}>{label}</button>
       {/each}
     </div>
+
+    <NotifySettings />
 
     <div class="section-head"><h2>Backup</h2></div>
     <div class="card">

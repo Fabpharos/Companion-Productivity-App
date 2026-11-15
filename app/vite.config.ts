@@ -30,6 +30,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,png,svg,webmanifest}"],
+        // Showing notifications and opening the app from one.
+        importScripts: ["push-sw.js"],
       },
     }),
   ],
