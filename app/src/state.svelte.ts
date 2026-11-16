@@ -30,6 +30,7 @@ import {
   db,
   readCompanion,
   readConnection,
+  readNovelAi,
   readSettings,
   removeImages,
   replaceCompanion,
@@ -44,6 +45,7 @@ import { title } from "./lib/items.ts";
 import {
   DEFAULT_SETTINGS,
   NO_CONNECTION,
+  NO_NOVELAI,
   type Activity,
   type Chore,
   type CompanionCard,
@@ -52,6 +54,7 @@ import {
   type ItemKind,
   type List,
   type NotifySettings,
+  type NovelAi,
   type PoseName,
   type QuestSet,
   type Reward,
@@ -62,6 +65,7 @@ import {
   type TripEntry,
 } from "./lib/model.ts";
 import { badgeCount, plan, toReminders } from "./lib/notify.ts";
+import { currentLook, defaultLook, hasBaseImage, imageId, isGenerated, nearestImage, type WearContext } from "./lib/outfits.ts";
 import { recentWin, trendUp, weeklyCounts } from "./lib/stats.ts";
 import { currentTrip, tasksComingDue, travellingOn } from "./lib/trips.ts";
 import { PushError, sendReminders, sendTest, setBadge, subscribe, unsubscribe } from "./push.ts";
@@ -83,6 +87,12 @@ class Data {
   images = $state.raw<StoredImage[]>([]);
   /** The set of lines the companion speaks with. */
   style = $derived(styleById(this.card.styleId));
+  /** The NovelAI account and how it may be used. */
+  nai = $state.raw<NovelAi>(NO_NOVELAI);
+  /** True when NovelAI draws the companion: it is switched on and the everyday look has an approved picture. */
+  drawn = $derived(this.nai.images && hasBaseImage(this.images, this.card));
+  /** What the companion is wearing now. */
+  look = $derived(currentLook(this.card, wearContext(), this.nai.wear));
   ready = $state(false);
   now = $state(Date.now());
   today = $derived(localDate(this.now));
@@ -102,6 +112,23 @@ class Data {
   list(id: string | null): List | undefined {
     return this.lists.find((list) => list.id === id);
   }
+}
+
+const HALF_HOUR = 30 * 60_000;
+
+/** What is going on right now, as far as the companion's clothes are concerned. */
+function wearContext(): WearContext {
+  const time = new Date(data.now);
+  const last = data.activity
+    .filter((entry) => entry.at > data.now - HALF_HOUR && (entry.type === "chore" || entry.type === "done"))
+    .sort((a, b) => b.at - a.at)[0];
+  return {
+    tripOutfit: data.outfit,
+    recent: last?.type === "chore" ? "chore" : last?.kind === "shopping" ? "shopping" : null,
+    hour: time.getHours(),
+    month: time.getMonth() + 1,
+    celebrating: data.game.bond.level >= 3 && ui.said.some((said) => MILESTONE_EVENTS.includes(said.event) && localDate(said.at) === data.today),
+  };
 }
 
 export const data = new Data();
@@ -221,7 +248,7 @@ export function openHash(hash: string) {
 }
 
 /** Small things remembered between launches that are about this phone, not part of the data. */
-const remembered = {
+export const remembered = {
   get<T>(key: string): T | null {
     try {
       return JSON.parse(localStorage.getItem(key) ?? "null") as T | null;
@@ -253,6 +280,7 @@ export function start() {
     tripEntries: await db.tripEntries.toArray(),
     settings: await readSettings(),
     connection: await readConnection(),
+    nai: await readNovelAi(),
   })).subscribe({
     next: (snapshot) => {
       const first = !data.ready;
@@ -321,6 +349,11 @@ const DEFAULT_ART: CompanionArt = { image: poseImage, framing };
  * An uploaded main picture replaces the default art, and stands in for any pose without its own.
  */
 export function companionArt(): CompanionArt {
+  if (data.drawn) {
+    // Drawn by NovelAI: the picture nearest to what it is wearing and its pose.
+    const { images, card, look } = data;
+    return { image: (pose) => nearestImage(images, card, look, pose)?.data ?? "", framing: card.framing };
+  }
   const main = data.images.find((image) => image.id === "idle");
   if (!main) return DEFAULT_ART;
   const byPose = new Map(data.images.map((image) => [image.id, image.data]));
@@ -331,10 +364,26 @@ export function companionArt(): CompanionArt {
 export const MILESTONE_EVENTS: readonly LineEvent[] = ["levelUp", "streak", "bond", "quest"];
 const SAID_KEPT = 40;
 
+/** Called after each line, so NovelAI can offer one of its own in its place. Set by novelai.svelte.ts. */
+let afterSpeak: ((event: LineEvent, vars: Vars) => void) | undefined;
+export function onSpeak(listener: typeof afterSpeak) {
+  afterSpeak = listener;
+}
+
 export function speak(event: LineEvent, vars: Vars = {}) {
   ui.companion = say(data.style, event, vars, data.game.bond.level, Math.random(), data.outfit);
   if (!ui.companion.text) return;
   ui.said = [{ at: Date.now(), event, text: ui.companion.text }, ...ui.said].slice(0, SAID_KEPT);
+  remembered.set("said", ui.said);
+  afterSpeak?.(event, vars);
+}
+
+/** Puts other words in the companion's mouth for the line it is saying now, and in its history. */
+export function replaceLine(text: string) {
+  ui.companion = { ...ui.companion, text };
+  const [latest, ...rest] = ui.said;
+  if (!latest) return;
+  ui.said = [{ ...latest, text }, ...rest];
   remembered.set("said", ui.said);
 }
 
@@ -533,13 +582,20 @@ export async function uploadImage(pose: PoseName, file: Blob): Promise<string | 
 
 /** Removes one pose's picture. Removing the main one removes them all, and the default art returns. */
 export async function removeImage(pose: PoseName) {
-  await removeImages(pose === "idle" ? undefined : pose);
+  await removeImages(pose === "idle" ? (id) => !isGenerated({ id, data: "", width: 0, height: 0 }) : pose);
+}
+
+/** The picture that stands for the companion itself: the approved everyday look, else the uploaded or default art. */
+export function basePicture(): string {
+  const drawn = data.images.find((image) => image.id === imageId(defaultLook(data.card).key, "idle"));
+  if (drawn && data.nai.images) return drawn.data;
+  return (data.images.find((image) => image.id === "idle")?.data ?? DEFAULT_ART.image("idle"));
 }
 
 /** Saves the companion as a character card: its main picture as a PNG with the card inside. */
 export async function exportCard(): Promise<string | null> {
   try {
-    const picture = await toPng(companionArt().image("idle"));
+    const picture = await toPng(basePicture());
     const done = await deliver(embedCard(picture, data.card), cardFileName(data.card), "image/png");
     if (done) toast("Card file created");
     return null;

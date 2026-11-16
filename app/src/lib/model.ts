@@ -232,6 +232,8 @@ export interface CompanionCard {
   basePrompt: string;
   defaultOutfit: string;
   outfitRules: OutfitRule[];
+  /** The seed NovelAI draws this character with, set when its first picture is approved. */
+  seed: number | null;
   /** Where the face is in its pictures, for the close-up. */
   framing: Framing;
   /** Fields of an imported card that this app does not use, kept so the card exports as it came. */
@@ -240,9 +242,13 @@ export interface CompanionCard {
 
 export type PoseName = "idle" | "happy" | "proud" | "sleepy" | "concerned";
 
-/** One of the companion's own pictures. "idle" is the main one, and stands in for any pose without its own. */
+/**
+ * One of the companion's pictures. An uploaded one is named by its pose:
+ * "idle" is the main one, and stands in for any pose without its own. One
+ * drawn by NovelAI is named "nai:<look>:<pose>" (see outfits.ts).
+ */
 export interface StoredImage {
-  id: PoseName;
+  id: string;
   /** The picture itself, as a data: address. */
   data: string;
   width: number;
@@ -308,6 +314,27 @@ export interface Connection {
 }
 
 export const NO_CONNECTION: Connection = { url: "", key: "", on: false };
+
+/**
+ * The NovelAI account and how it may be used. Like the connection, it is
+ * about this phone: it is never written to a backup, and the token is a secret
+ * that goes only to NovelAI.
+ */
+export interface NovelAi {
+  token: string;
+  /** NovelAI draws the companion. */
+  images: boolean;
+  /** NovelAI writes what the companion says. */
+  text: boolean;
+  /** Missing pictures are drawn without being asked for, when that costs nothing. */
+  auto: boolean;
+  /** The most pictures drawn that way in one day. */
+  dailyCap: number;
+  /** An outfit chosen by hand, or null to dress for the situation. */
+  wear: string | null;
+}
+
+export const NO_NOVELAI: NovelAi = { token: "", images: false, text: false, auto: true, dailyCap: 5, wear: null };
 
 /** The built-in list an item of this kind goes to when nothing else says where. */
 export function homeList(kind: ItemKind): string {

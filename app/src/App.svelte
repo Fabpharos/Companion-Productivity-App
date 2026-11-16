@@ -12,6 +12,7 @@
   import Today from "./screens/Today.svelte";
   import Trip from "./screens/Trip.svelte";
   import Trips from "./screens/Trips.svelte";
+  import { autoDraw } from "./novelai.svelte.ts";
   import { currentHash, data, showBadge, syncSoon, TABS, ui, undoToast, type Tab } from "./state.svelte.ts";
   import CaptureBar from "./ui/CaptureBar.svelte";
   import ChoreSheet from "./ui/ChoreSheet.svelte";
@@ -35,6 +36,15 @@
     void data.plan;
     void data.connection;
     syncSoon();
+  });
+
+  $effect(() => {
+    // A look with no picture yet is drawn a few seconds after it comes up, if NovelAI may do that on its own.
+    void data.look.key;
+    void ui.companion.pose;
+    void data.drawn;
+    const timer = setTimeout(() => void autoDraw(), 4000);
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {

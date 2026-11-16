@@ -77,10 +77,14 @@ const snapshot: Snapshot = {
     basePrompt: "1girl, black hair",
     defaultOutfit: "white blouse",
     outfitRules: [{ context: "chores", tags: "apron" }],
+    seed: 42,
     framing: { x: 0.5, y: 0.2, span: 0.3 },
     other: { scenario: "At home." },
   },
-  images: [{ id: "idle", data: "data:image/png;base64,iVBORw0KGgo=", width: 512, height: 768 }],
+  images: [
+    { id: "idle", data: "data:image/png;base64,iVBORw0KGgo=", width: 512, height: 768 },
+    { id: "nai:0a1b2c3d:happy", data: "data:image/jpeg;base64,AAAA", width: 512, height: 768 },
+  ],
 };
 
 test("a backup reads back exactly as it was written", () => {

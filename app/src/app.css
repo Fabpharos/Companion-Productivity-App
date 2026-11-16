@@ -1497,3 +1497,27 @@ textarea.text.tall {
 .weeks .week.now {
   color: var(--text);
 }
+
+/* A picture NovelAI has drawn, waiting to be kept or thrown away. */
+
+.candidate {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.candidate img {
+  flex: none;
+  width: 42%;
+  max-width: 180px;
+  aspect-ratio: 2 / 3;
+  border-radius: 14px;
+  object-fit: cover;
+  background: var(--sunken);
+}
+
+.switch:disabled {
+  opacity: 0.4;
+}

@@ -2,9 +2,11 @@
 
 A Home Screen web app for one iPhone: notes, to-dos, shopping, chores and trips, built around a companion character. The full plan is in [docs/build-plan.md](docs/build-plan.md).
 
-**Current stage: Phase 5, the custom companion.** The app has notes, to-dos and shopping (Phase 1), chores, points and a companion (Phase 2), trips (Phase 3), notifications sent through the Worker (Phase 4), and a companion that can be given its own picture, name, character and way of speaking, saved as a character card (Phase 5). The NovelAI companion is next. Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
+**Current stage: Phase 6, the NovelAI companion. Every phase of the plan is built.** The app has notes, to-dos and shopping (Phase 1), chores, points and a companion (Phase 2), trips (Phase 3), notifications sent through the Worker (Phase 4), a companion with its own picture, character and voice, saved as a character card (Phase 5), and an optional mode where NovelAI draws the companion in an outfit for each situation and writes what it says (Phase 6). Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
 
-Not built yet from the plan: habits, the weekly review and task aging (Phase 2 extras); dragging stops between days and general list templates (Phase 3).
+**The NovelAI mode has not been run against NovelAI itself.** It was built from the requests Phase 0 proved on the phone and tested against a stand-in. The first real run is on the phone, with a real token.
+
+Not built from the plan: habits, the weekly review and task aging (Phase 2 extras); dragging stops between days and general list templates (Phase 3); a character reference image for generated art (Phase 6).
 
 ## Layout
 
@@ -66,7 +68,7 @@ Its art is in `app/content/companion/`, one image per pose, until a picture is u
 
 **Dialogue styles.** A style is a full set of lines for the same events. Calm is in `app/content/dialogue.ts`, and Cheerful, Teasing, Formal and Deadpan are in `app/content/styles.ts`. To add a style, copy one, rewrite its lines, and add it to `STYLES`. The tests check that every style covers every event, uses only the words in braces that its event fills in, and never scolds.
 
-**Who the companion is** is a `CompanionCard` (`card.ts`): name, description, personality, example lines, the chosen style, the appearance prompt and default outfit for NovelAI later, and the framing of its face. It is edited from Customize on the Companion tab and stored on the phone with its pictures. Bond level and unlocks are progress, not identity, so they are never part of it.
+**Who the companion is** is a `CompanionCard` (`card.ts`): name, description, personality, example lines, the chosen style, the appearance prompt, default outfit, outfit rules and seed that NovelAI draws from, and the framing of its face. It is edited from Customize on the Companion tab and stored on the phone with its pictures. Bond level and unlocks are progress, not identity, so they are never part of it.
 
 **Pictures.** One uploaded picture replaces the default art. Happy, proud, sleepy and concerned can each have their own, and use the main one otherwise. A picture is scaled down to 1024 pixels on its longer side and stored in the database as a data address, so it is in the backup file too. The sliders under Close-up set the card's framing.
 
@@ -86,6 +88,21 @@ The art is shown two ways from the same image: whole on the Companion tab, and a
 **The five SVGs in the folder are placeholders.** To use real art, put `idle.png`, `happy.png`, `proud.png`, `sleepy.png` and `concerned.png` beside them. They replace the placeholders with no code change, and the close-up switches to the framing for a standing figure. If the face sits somewhere unusual, set `framing` in `app/content/companion/index.ts`.
 
 The tone rule is tested for every style: no line may scold or count what was missed.
+
+### NovelAI
+
+Optional, and switched on under Customize on the Companion tab. With it off, offline, or failing, the companion shows the nearest picture it has and says its pre-set lines.
+
+- **All calls are in `app/src/lib/novelai/`.** `requests.ts` builds what is sent and reads what comes back, `client.ts` sends it, and `codec.ts` decodes the picture stream. NovelAI has no official API for other apps and changes without notice, so when something breaks, those three files are where it is fixed. The request bodies are the ones Phase 0 proved.
+- **The token** is stored on the phone, outside the backup file, and is sent only to `image.novelai.net` and `text.novelai.net` in the Authorization header.
+- **Pictures.** The prompt is the card's base prompt, the outfit's tags, the mood's tags, and fixed framing tags (whole body, standing), at 512×768. V5 is used when the account can draw with it for free, V4.5 otherwise, and V4.5 is tried when a V5 request is refused. Each picture is shown to keep, redo or discard, and only a kept one is stored (as a JPEG, named `nai:<look>:<pose>`).
+- **Backgrounds.** V5 draws a truly transparent background. NovelAI's own page asks for it with the `transparent background` tag in the prompt plus two switches in the request (`straight_alpha` and `tag_hint_transparent_background`), and the switches alone do nothing, so the app sends all three. V4.5 cannot, and is asked for a plain white backdrop. A picture that comes back transparent is stored exactly as it came, as a PNG of a few hundred kilobytes. One that does not is stored as a JPEG.
+- **The everyday look** is drawn first, in the card's default outfit. Approving it fixes the character's seed, which every later picture reuses. Changing the base prompt or an outfit's tags gives that look a new name, so pictures of the old appearance are never shown for the new one.
+- **Outfits** (`outfits.ts`). The first situation that applies decides: a trip under way or within a week (the trip's outfit tag), a chore or a shopping entry finished in the last half hour, late evening, a milestone day, the season, and otherwise the card's default outfit. The card can change any outfit's tags, switch one off by leaving it empty, and add outfits that are worn only when chosen by hand.
+- **The nearest picture.** A look or mood not drawn yet is stood in for by the same look resting, then the everyday look in that mood, then the everyday look resting.
+- **The spending guard** (`chooseModel`). A picture is free only where that is certain: an active Opus subscription, and for V5 some of its usage allowance left. Anything else counts as paid. A drawing nobody asked for is never paid for. A drawing that was asked for and would spend Anlas asks first, shows the balance, and reports what was spent after.
+- **Drawing on its own.** A look on screen with no picture is drawn a few seconds later, only online, only when free, up to a daily limit, and never one that was discarded in the same session. It can be switched off, leaving a "Draw this look" button.
+- **Lines.** For greetings, completions, milestones and taps, the pre-set line is shown at once, and a generated one replaces it if it arrives within a few seconds. The model is given a short scene: who the character is, its example lines, what just happened, and an open quotation mark. The reply is cut at the first closing quotation mark, and dropped if it is empty, cut off, oddly formatted, or breaks the tone rule. Points earned are added by the app, not the model. Completions in quick succession get one line between them.
 
 ### Trips
 

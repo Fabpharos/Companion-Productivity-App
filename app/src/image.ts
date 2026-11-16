@@ -45,6 +45,45 @@ export async function prepareImage(file: Blob): Promise<Omit<StoredImage, "id">>
   }
 }
 
+/** A share of a picture's pixels that must be see-through before it counts as having a transparent background. */
+const TRANSPARENT_SHARE = 0.05;
+
+/**
+ * A picture NovelAI drew, in the form it is kept in. One with a transparent
+ * background is kept exactly as it came, since only a PNG holds transparency.
+ * One without is kept as a JPEG, a fraction of the size.
+ */
+export async function keepDrawn(bytes: Uint8Array, type: string): Promise<Omit<StoredImage, "id">> {
+  const address = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
+  try {
+    const image = await load(address);
+    const width = image.naturalWidth;
+    const height = image.naturalHeight;
+    const canvas = draw(image, width, height);
+    const context = canvas.getContext("2d")!;
+    if (type === "image/png") {
+      const pixels = context.getImageData(0, 0, width, height).data;
+      let clear = 0;
+      for (let at = 3; at < pixels.length; at += 4) if (pixels[at]! < 128) clear++;
+      if (clear > (pixels.length / 4) * TRANSPARENT_SHARE) return { data: toDataUrl(bytes, type), width, height };
+    }
+    // No transparency to keep: flatten onto white, the backdrop the art was drawn on.
+    context.globalCompositeOperation = "destination-over";
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, width, height);
+    return { data: canvas.toDataURL("image/jpeg", 0.92), width, height };
+  } finally {
+    URL.revokeObjectURL(address);
+  }
+}
+
+function toDataUrl(bytes: Uint8Array, type: string): string {
+  let binary = "";
+  // In pieces, since a whole picture is too many arguments for one call.
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return `data:${type};base64,${btoa(binary)}`;
+}
+
 /** Any picture the app can show, as the bytes of a PNG file. A character card has to be a PNG. */
 export async function toPng(src: string): Promise<Uint8Array<ArrayBuffer>> {
   if (src.startsWith("data:image/png;")) return dataUrlBytes(src).bytes;

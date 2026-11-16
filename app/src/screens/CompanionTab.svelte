@@ -5,6 +5,8 @@
   import { describeDue, localDate } from "../lib/dates.ts";
   import { waitingLongest, weeklyCounts } from "../lib/stats.ts";
   import { actions, buyReward, checkIn, data, MILESTONE_EVENTS, toast, ui, type Mood } from "../state.svelte.ts";
+  import { draw, missingNow, nai } from "../novelai.svelte.ts";
+  import Candidate from "../ui/Candidate.svelte";
   import Companion from "../ui/Companion.svelte";
   import Icon from "../ui/Icon.svelte";
   import Quests from "../ui/Quests.svelte";
@@ -44,6 +46,18 @@
   <span class="muted small">{data.style.name}</span>
   <button class="btn small" onclick={() => (ui.overlay = "companion")}>Customize</button>
 </div>
+
+{#if data.drawn}
+  <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+    <span class="muted small grow">Wearing: {data.look.label.toLowerCase()}{data.nai.wear ? ", chosen by hand" : ""}</span>
+    {#if missingNow() && !nai.candidate && !nai.ask}
+      <button class="btn small" disabled={nai.busy} onclick={() => draw(data.look, ui.companion.pose, { manual: true })}>
+        {nai.busy ? "Drawing…" : "Draw this look"}
+      </button>
+    {/if}
+  </div>
+{/if}
+{#if data.nai.images}<Candidate />{/if}
 
 {#if ui.checkin?.date !== data.today}
   <div class="card" style="margin-top:12px;padding:12px 14px">

@@ -5,8 +5,9 @@
   import { STYLES } from "../../content/styles.ts";
   import type { CompanionCard, PoseName } from "../lib/model.ts";
   import { CLOSE_UP_ASPECT, crop, PORTRAIT_ASPECT } from "../lib/portrait.ts";
-  import { companionArt, data, exportCard, importCard, removeImage, resetCompanion, saveCard, setStyle, ui, uploadImage } from "../state.svelte.ts";
+  import { basePicture, companionArt, data, exportCard, importCard, removeImage, resetCompanion, saveCard, setStyle, ui, uploadImage } from "../state.svelte.ts";
   import Icon from "../ui/Icon.svelte";
+  import NovelAiSettings from "../ui/NovelAiSettings.svelte";
 
   const MOODS: { pose: PoseName; label: string }[] = [
     { pose: "happy", label: "Happy" },
@@ -27,6 +28,7 @@
   const card = $derived(data.card);
   const main = $derived(data.images.find((image) => image.id === "idle"));
   const art = $derived(companionArt());
+  const picture = $derived(basePicture());
   const aspect = $derived(main && main.height ? main.width / main.height : PORTRAIT_ASPECT);
   const box = $derived(crop(card.framing, aspect, CLOSE_UP_ASPECT));
 
@@ -67,12 +69,14 @@
     <div class="section-head"><h2>Picture</h2></div>
     <div class="card">
       <div class="field" style="align-items:flex-start;padding-top:14px;padding-bottom:14px">
-        <img class="thumb large" src={art.image("idle")} alt="The companion" />
+        <img class="thumb large" src={picture} alt="The companion" />
         <div class="grow" style="display:flex;flex-direction:column;gap:8px">
           <p class="muted small">
-            {main
-              ? "Your picture is in use."
-              : "A tall picture of the whole character works best, with a plain or transparent background."}
+            {data.drawn
+              ? "NovelAI is drawing the companion. An uploaded picture is used again when that is switched off."
+              : main
+                ? "Your picture is in use."
+                : "A tall picture of the whole character works best, with a plain or transparent background."}
           </p>
           <label class="btn small" aria-disabled={busy}>
             {main ? "Change picture" : "Choose a picture"}
@@ -171,8 +175,12 @@
         <span class="muted small">Default outfit</span>
         <input class="input" type="text" autocomplete="off" placeholder="What they usually wear" value={card.defaultOutfit} onchange={(event) => setText("defaultOutfit", event)} />
       </label>
-      <p class="muted small" style="padding:0 14px 12px">Kept in the card for when NovelAI draws the companion. Nothing uses these yet.</p>
+      <p class="muted small" style="padding:0 14px 12px">
+        What NovelAI draws from. Tags work best: "1girl, long black hair, brown eyes". The outfit goes in its own box so it can change.
+      </p>
     </div>
+
+    <NovelAiSettings />
 
     <div class="section-head"><h2>Character card</h2></div>
     <div class="card">

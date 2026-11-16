@@ -11,12 +11,14 @@ import {
   BUILTIN_LISTS,
   DEFAULT_SETTINGS,
   NO_CONNECTION,
+  NO_NOVELAI,
   type Activity,
   type Chore,
   type CompanionCard,
   type Connection,
   type Item,
   type List,
+  type NovelAi,
   type QuestSet,
   type Reward,
   type Settings,
@@ -144,6 +146,18 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   });
 }
 
+/** The NovelAI account. Kept apart from the settings, like the connection, so the token is never in a backup. */
+export async function readNovelAi(): Promise<NovelAi> {
+  const row = await db.meta.get("novelai");
+  return { ...NO_NOVELAI, ...(row?.value as Partial<NovelAi> | undefined) };
+}
+
+export async function saveNovelAi(patch: Partial<NovelAi>): Promise<void> {
+  await db.transaction("rw", db.meta, async () => {
+    await db.meta.put({ key: "novelai", value: { ...(await readNovelAi()), ...patch } });
+  });
+}
+
 /** Who the companion is. Stored whole, like the settings. */
 export async function readCompanion(): Promise<CompanionCard> {
   return readCard((await db.meta.get("companion"))?.value);
@@ -158,10 +172,10 @@ export async function saveImage(image: StoredImage): Promise<void> {
   await db.images.put(image);
 }
 
-/** Removes the picture of one pose, or every picture. */
-export async function removeImages(id?: StoredImage["id"]): Promise<void> {
-  if (id) await db.images.delete(id);
-  else await db.images.clear();
+/** Removes one picture, or every picture whose name passes the test. */
+export async function removeImages(which: string | ((id: string) => boolean)): Promise<void> {
+  if (typeof which === "string") await db.images.delete(which);
+  else await db.images.bulkDelete((await db.images.toCollection().primaryKeys()).filter(which));
 }
 
 /** Replaces the companion with another: its card, and its main picture if it came with one. */

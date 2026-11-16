@@ -15,7 +15,8 @@ const card: CompanionCard = {
   styleId: "teasing",
   basePrompt: "1girl, long black hair, brown eyes",
   defaultOutfit: "white blouse, red skirt",
-  outfitRules: [{ context: "chores", tags: "apron, hair tied back" }],
+  outfitRules: [{ context: "chores", tags: "apron, hair tied back" }, { context: "winter", tags: "" }],
+  seed: 123456789,
   framing: { x: 0.48, y: 0.2, span: 0.3 },
   other: {},
 };
@@ -83,7 +84,8 @@ test("a card made elsewhere loads, and what this app does not use is carried alo
 
 test("a stored card is made safe field by field", () => {
   assert.deepEqual(readCard(null), DEFAULT_CARD);
-  const read = readCard({ name: "  Mika ", styleId: "", framing: { x: 5, y: "no", span: 0 }, outfitRules: [{ context: "chores" }, "x", { context: "a", tags: "b" }], other: [] });
+  const read = readCard({ name: "  Mika ", styleId: "", framing: { x: 5, y: "no", span: 0 }, outfitRules: [{ context: "chores" }, "x", { context: "a", tags: "b" }], seed: -4, other: [] });
+  assert.equal(read.seed, null);
   assert.deepEqual([read.name, read.styleId, read.outfitRules, read.other], ["Mika", "calm", [{ context: "a", tags: "b" }], {}]);
   assert.deepEqual(read.framing, { x: 1, y: DEFAULT_CARD.framing.y, span: 0.1 });
 });
@@ -92,6 +94,9 @@ test("a stored picture must be a pose's image", () => {
   const data = `data:image/png;base64,${PIXEL}`;
   assert.deepEqual(readImage({ id: "idle", data, width: 512.4, height: 768 }), { id: "idle", data, width: 512, height: 768 });
   assert.equal(readImage({ id: "dancing", data }), null);
+  assert.equal(readImage({ id: "nai:0a1b2c3d:happy", data, width: 512, height: 768 })?.id, "nai:0a1b2c3d:happy", "a picture NovelAI drew");
+  assert.equal(readImage({ id: "nai:nonsense:happy", data }), null);
+  assert.equal(readImage({ id: "nai:0a1b2c3d:dancing", data }), null);
   assert.equal(readImage({ id: "idle", data: "https://example.com/a.png" }), null);
   assert.equal(readImage({ id: "idle", data: "data:text/html;base64,AAAA" }), null);
   assert.deepEqual([...dataUrlBytes(data).bytes], [...png()]);

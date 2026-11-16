@@ -24,6 +24,7 @@ export const DEFAULT_CARD: CompanionCard = {
   basePrompt: "",
   defaultOutfit: "",
   outfitRules: [],
+  seed: null,
   framing: PORTRAIT_FRAMING,
   other: {},
 };
@@ -41,8 +42,10 @@ function readRules(raw: unknown): OutfitRule[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(isObject)
+    // Empty tags are kept: they switch a built-in rule off.
+    .filter((rule) => typeof rule.tags === "string")
     .map((rule) => ({ context: str(rule.context, 100), tags: str(rule.tags, 500) }))
-    .filter((rule) => rule.context && rule.tags)
+    .filter((rule) => rule.context)
     .slice(0, 50);
 }
 
@@ -58,6 +61,7 @@ export function readCard(raw: unknown): CompanionCard {
     basePrompt: str(raw.basePrompt, 5000),
     defaultOutfit: str(raw.defaultOutfit, 1000),
     outfitRules: readRules(raw.outfitRules),
+    seed: typeof raw.seed === "number" && Number.isInteger(raw.seed) && raw.seed >= 0 && raw.seed < 2 ** 32 ? raw.seed : null,
     framing: raw.framing === undefined ? PORTRAIT_FRAMING : readFraming(raw.framing),
     other: isObject(raw.other) ? raw.other : {},
   };
@@ -65,10 +69,12 @@ export function readCard(raw: unknown): CompanionCard {
 
 /** One of the companion's stored pictures, or null if it is not usable. */
 export function readImage(raw: unknown): StoredImage | null {
-  if (!isObject(raw) || !(POSES as readonly string[]).includes(raw.id as string)) return null;
+  if (!isObject(raw) || typeof raw.id !== "string") return null;
+  const generated = /^nai:[0-9a-f]{8}:([a-z]+)$/.exec(raw.id);
+  if (!(POSES as readonly string[]).includes(generated ? generated[1]! : raw.id)) return null;
   if (typeof raw.data !== "string" || !/^data:image\/(png|jpeg|webp);base64,/.test(raw.data)) return null;
   const size = (value: unknown) => (typeof value === "number" && value > 0 ? Math.round(value) : 0);
-  return { id: raw.id as StoredImage["id"], data: raw.data, width: size(raw.width), height: size(raw.height) };
+  return { id: raw.id, data: raw.data, width: size(raw.width), height: size(raw.height) };
 }
 
 // ---------- The card's data ----------
@@ -102,6 +108,7 @@ export function cardToJson(card: CompanionCard): object {
           basePrompt: card.basePrompt,
           defaultOutfit: card.defaultOutfit,
           outfitRules: card.outfitRules,
+          seed: card.seed,
           framing: card.framing,
         },
       },
@@ -130,6 +137,7 @@ export function cardFromJson(json: unknown): CompanionCard | null {
     basePrompt: own.basePrompt,
     defaultOutfit: own.defaultOutfit,
     outfitRules: own.outfitRules,
+    seed: own.seed,
     framing: own.framing,
     other,
   });
