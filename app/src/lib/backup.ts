@@ -4,6 +4,7 @@
 // field with defaults for whatever is missing, which is also how a file from
 // an older version of the app is brought up to date.
 
+import { readCard, readImage } from "./card.ts";
 import { isDate, isTime, localDate } from "./dates.ts";
 import {
   BUILTIN_LISTS,
@@ -32,7 +33,7 @@ import {
 
 export const APP_ID = "companion-productivity-app";
 /** Raise this when the shape of the stored data changes, and teach `readBackup` the old shape. */
-export const BACKUP_FORMAT = 4;
+export const BACKUP_FORMAT = 5;
 export const BACKUP_EVERY_DAYS = 14;
 
 const DAY = 86_400_000;
@@ -313,6 +314,13 @@ export function readBackup(text: string, now: number): { snapshot: Snapshot; exp
           .filter((entry) => entry !== null),
       ),
       settings: readSettings(data.settings),
+      // Before Phase 5 there was no companion to save: the default one is used.
+      companion: readCard(data.companion),
+      images: unique(
+        array(data.images)
+          .map(readImage)
+          .filter((image) => image !== null),
+      ),
     },
   };
 }

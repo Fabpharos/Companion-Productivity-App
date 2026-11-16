@@ -292,3 +292,27 @@ test("a bad backup file changes nothing", async () => {
   assert.equal(await db.items.count(), 1);
   assert.equal((await readSettings()).lastBackupAt, null);
 });
+
+test("the companion and its pictures survive a backup and restore, and a card replaces both", async () => {
+  const { DEFAULT_CARD } = await import("./card.ts");
+  const { readCompanion, removeImages, replaceCompanion, saveCompanion, saveImage } = await import("./db.ts");
+  const picture = { data: "data:image/png;base64,AAAA", width: 2, height: 3 };
+  assert.deepEqual(await readCompanion(), DEFAULT_CARD, "a new database has the default companion");
+
+  await saveCompanion({ ...DEFAULT_CARD, name: "Mika", styleId: "formal" });
+  await saveImage({ id: "idle", ...picture });
+  await saveImage({ id: "happy", ...picture });
+  const file = await actions.exportBackup();
+  await db.delete();
+  await db.open();
+  await actions.importBackup(file);
+  assert.deepEqual([(await readCompanion()).name, (await readCompanion()).styleId], ["Mika", "formal"]);
+  assert.deepEqual((await db.images.toArray()).map((image) => image.id).sort(), ["happy", "idle"]);
+
+  await removeImages("happy");
+  assert.equal(await db.images.count(), 1);
+  await replaceCompanion({ ...DEFAULT_CARD, name: "Rin" }, [{ id: "idle", ...picture, width: 9 }]);
+  assert.deepEqual([(await readCompanion()).name, (await db.images.toArray()).map((image) => image.width)], ["Rin", [9]]);
+  await replaceCompanion(DEFAULT_CARD, []);
+  assert.deepEqual([await readCompanion(), await db.images.count()], [DEFAULT_CARD, 0]);
+});

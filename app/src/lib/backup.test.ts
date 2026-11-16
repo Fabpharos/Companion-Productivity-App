@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { APP_ID, BackupError, backupFileName, backupReminderDue, makeBackup, readBackup } from "./backup.ts";
 import { makeItem } from "./items.ts";
+import { DEFAULT_CARD } from "./card.ts";
 import { BUILTIN_LISTS, DEFAULT_SETTINGS, INBOX, TODOS, type Snapshot } from "./model.ts";
 
 const DAY = 86_400_000;
@@ -67,6 +68,19 @@ const snapshot: Snapshot = {
       privateText: true,
     },
   },
+  companion: {
+    name: "Mika",
+    description: "A shrine maiden.",
+    personality: "warm",
+    examples: "{{char}}: Well done!",
+    styleId: "teasing",
+    basePrompt: "1girl, black hair",
+    defaultOutfit: "white blouse",
+    outfitRules: [{ context: "chores", tags: "apron" }],
+    framing: { x: 0.5, y: 0.2, span: 0.3 },
+    other: { scenario: "At home." },
+  },
+  images: [{ id: "idle", data: "data:image/png;base64,iVBORw0KGgo=", width: 512, height: 768 }],
 };
 
 test("a backup reads back exactly as it was written", () => {
@@ -170,6 +184,7 @@ test("a backup from before Phase 4 gets no reminder times and the default notifi
   const { snapshot: read } = readBackup(JSON.stringify(old), 0);
   assert.equal(read.items[0]?.time, null);
   assert.deepEqual(read.settings.notify, DEFAULT_SETTINGS.notify);
+  assert.deepEqual([read.companion, read.images], [DEFAULT_CARD, []], "and the default companion");
 
   const odd = { ...old, format: 4, data: { items: [{ id: "1", text: "x", time: "9am" }], settings: { notify: { kinds: { chore: false, bogus: true }, morningAt: "25:00", dailyCap: 99 } } } };
   const { snapshot: fixed } = readBackup(JSON.stringify(odd), 0);

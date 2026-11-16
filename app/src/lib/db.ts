@@ -6,12 +6,14 @@
 
 import Dexie, { type Table } from "dexie";
 import { readNotify } from "./backup.ts";
+import { readCard } from "./card.ts";
 import {
   BUILTIN_LISTS,
   DEFAULT_SETTINGS,
   NO_CONNECTION,
   type Activity,
   type Chore,
+  type CompanionCard,
   type Connection,
   type Item,
   type List,
@@ -19,6 +21,7 @@ import {
   type Reward,
   type Settings,
   type Snapshot,
+  type StoredImage,
   type Trip,
   type TripEntry,
 } from "./model.ts";
@@ -32,6 +35,7 @@ class AppDb extends Dexie {
   quests!: Table<QuestSet, string>;
   trips!: Table<Trip, string>;
   tripEntries!: Table<TripEntry, string>;
+  images!: Table<StoredImage, string>;
   meta!: Table<{ key: string; value: unknown }, string>;
 
   constructor() {
@@ -61,6 +65,8 @@ class AppDb extends Dexie {
           item.time ??= null;
         }),
     );
+    // Phase 5: the companion's own pictures.
+    this.version(5).stores({ images: "id" });
     this.on("populate", (tx) => {
       void tx.table("lists").bulkAdd(BUILTIN_LISTS);
     });
@@ -138,8 +144,39 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   });
 }
 
+/** Who the companion is. Stored whole, like the settings. */
+export async function readCompanion(): Promise<CompanionCard> {
+  return readCard((await db.meta.get("companion"))?.value);
+}
+
+export async function saveCompanion(card: CompanionCard): Promise<void> {
+  await db.meta.put({ key: "companion", value: card });
+}
+
+/** Stores a picture for a pose, replacing the one it had. */
+export async function saveImage(image: StoredImage): Promise<void> {
+  await db.images.put(image);
+}
+
+/** Removes the picture of one pose, or every picture. */
+export async function removeImages(id?: StoredImage["id"]): Promise<void> {
+  if (id) await db.images.delete(id);
+  else await db.images.clear();
+}
+
+/** Replaces the companion with another: its card, and its main picture if it came with one. */
+export async function replaceCompanion(card: CompanionCard, images: StoredImage[] | null): Promise<void> {
+  await db.transaction("rw", db.meta, db.images, async () => {
+    await db.meta.put({ key: "companion", value: card });
+    if (images) {
+      await db.images.clear();
+      await db.images.bulkPut(images);
+    }
+  });
+}
+
 export async function readSnapshot(): Promise<Snapshot> {
-  return db.transaction("r", [...recordTables(), db.meta], async () => ({
+  return db.transaction("r", [...recordTables(), db.meta, db.images], async () => ({
     items: await db.items.toArray(),
     lists: await db.lists.toArray(),
     activity: await db.activity.toArray(),
@@ -149,16 +186,21 @@ export async function readSnapshot(): Promise<Snapshot> {
     trips: await db.trips.toArray(),
     tripEntries: await db.tripEntries.toArray(),
     settings: await readSettings(),
+    companion: await readCompanion(),
+    images: await db.images.toArray(),
   }));
 }
 
 /** Replaces everything stored with the snapshot. */
 export async function writeSnapshot(snapshot: Snapshot): Promise<void> {
-  await db.transaction("rw", [...recordTables(), db.meta], async () => {
+  await db.transaction("rw", [...recordTables(), db.meta, db.images], async () => {
     for (const name of TABLES) {
       await db.table(name).clear();
       await db.table(name).bulkAdd(snapshot[name]);
     }
+    await db.images.clear();
+    await db.images.bulkAdd(snapshot.images);
     await db.meta.put({ key: "settings", value: snapshot.settings });
+    await db.meta.put({ key: "companion", value: snapshot.companion });
   });
 }

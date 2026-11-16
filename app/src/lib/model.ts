@@ -1,6 +1,8 @@
 // The records the app stores. Everything here is plain data: it goes into
 // IndexedDB and into the backup file unchanged.
 
+import type { Framing } from "./portrait.ts";
+
 export type ItemKind = "note" | "todo" | "shopping";
 export type ListKind = ItemKind | "inbox";
 export type Priority = 0 | 1 | 2 | 3;
@@ -208,6 +210,45 @@ export interface Activity {
   points: number;
 }
 
+/** What the companion wears in some situation. Used once NovelAI draws it. */
+export interface OutfitRule {
+  context: string;
+  tags: string;
+}
+
+/**
+ * Who the companion is. This is what a character card file holds, so it is
+ * identity only: bond level and unlocks are progress and live in the log.
+ */
+export interface CompanionCard {
+  name: string;
+  description: string;
+  personality: string;
+  /** Example lines in the character's voice. */
+  examples: string;
+  /** Which set of pre-written lines it speaks with. */
+  styleId: string;
+  /** The appearance prompt and default outfit, for NovelAI later. */
+  basePrompt: string;
+  defaultOutfit: string;
+  outfitRules: OutfitRule[];
+  /** Where the face is in its pictures, for the close-up. */
+  framing: Framing;
+  /** Fields of an imported card that this app does not use, kept so the card exports as it came. */
+  other: Record<string, unknown>;
+}
+
+export type PoseName = "idle" | "happy" | "proud" | "sleepy" | "concerned";
+
+/** One of the companion's own pictures. "idle" is the main one, and stands in for any pose without its own. */
+export interface StoredImage {
+  id: PoseName;
+  /** The picture itself, as a data: address. */
+  data: string;
+  width: number;
+  height: number;
+}
+
 /** Everything the app stores, as one value. */
 export interface Snapshot {
   items: Item[];
@@ -219,6 +260,8 @@ export interface Snapshot {
   trips: Trip[];
   tripEntries: TripEntry[];
   settings: Settings;
+  companion: CompanionCard;
+  images: StoredImage[];
 }
 
 export const INBOX = "inbox";

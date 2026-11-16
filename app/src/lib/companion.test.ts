@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_STYLE, type DialogueStyle, type LineEvent } from "../../content/dialogue.ts";
+import { STYLES, styleById } from "../../content/styles.ts";
 import { makeChore } from "./chores.ts";
-import { completionEvent, greetingEvent, nudge, outfitFor, say, suggestNext, tripGreeting } from "./companion.ts";
+import { completionEvent, greetingEvent, nudge, outfitFor, say, suggestNext, tripGreeting, unlockedLines } from "./companion.ts";
 import { makeEntry, makeTrip } from "./trips.ts";
 import { makeItem } from "./items.ts";
 import { TODOS } from "./model.ts";
@@ -24,22 +25,37 @@ test("lines unlock with bond level", () => {
 });
 
 test("every event has a line at bond level 1, and every placeholder is one the app fills", () => {
-  for (const [event, lines] of Object.entries(DEFAULT_STYLE.lines)) {
-    assert.ok(
-      lines.some((line) => typeof line === "string"),
-      `${event} needs a line that is always available`,
-    );
-    for (const line of lines) {
-      const text = typeof line === "string" ? line : line.text;
-      for (const [, key] of text.matchAll(/\{(\w+)\}/g)) assert.ok(["name", "n", "points", "task"].includes(key!), `${event}: {${key}}`);
+  const events = Object.keys(DEFAULT_STYLE.lines).sort();
+  assert.deepEqual(STYLES.map((style) => style.id), ["calm", "cheerful", "teasing", "formal", "deadpan"]);
+  for (const style of STYLES) {
+    assert.deepEqual(Object.keys(style.lines).sort(), events, `${style.id} covers every event`);
+    for (const [event, lines] of Object.entries(style.lines)) {
+      assert.ok(
+        lines.some((line) => typeof line === "string"),
+        `${style.id} ${event} needs a line that is always available`,
+      );
+      for (const line of lines) {
+        const text = typeof line === "string" ? line : line.text;
+        for (const [, key] of text.matchAll(/\{(\w+)\}/g)) assert.ok(["name", "n", "points", "task"].includes(key!), `${style.id} ${event}: {${key}}`);
+        // A line may only use what its event fills in, so no braces are ever shown.
+        const calm = DEFAULT_STYLE.lines[event as LineEvent].map((other) => (typeof other === "string" ? other : other.text)).join(" ");
+        for (const [, key] of text.matchAll(/\{(\w+)\}/g)) assert.ok(calm.includes(`{${key}}`), `${style.id} ${event} uses {${key}}, which that event does not fill`);
+      }
     }
   }
+  assert.equal(styleById("teasing").name, "Teasing");
+  assert.equal(styleById("nonsense"), DEFAULT_STYLE);
+  const total = unlockedLines(DEFAULT_STYLE, 99);
+  assert.equal(total.have, total.total);
+  assert.ok(unlockedLines(DEFAULT_STYLE, 1).have < total.total, "some lines wait for a higher bond level");
 });
 
 test("the companion never scolds", () => {
   const banned = /\b(should have|shouldn't|lazy|failed|failure|behind|neglect|finally|missed|forgot|again\?|disappoint|guilt|shame|overdue)\b/i;
-  for (const [event, lines] of Object.entries(DEFAULT_STYLE.lines)) {
-    for (const line of lines) assert.doesNotMatch(typeof line === "string" ? line : line.text, banned, event);
+  for (const style of STYLES) {
+    for (const [event, lines] of Object.entries(style.lines)) {
+      for (const line of lines) assert.doesNotMatch(typeof line === "string" ? line : line.text, banned, `${style.id} ${event}`);
+    }
   }
 });
 

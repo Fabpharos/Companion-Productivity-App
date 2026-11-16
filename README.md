@@ -2,7 +2,7 @@
 
 A Home Screen web app for one iPhone: notes, to-dos, shopping, chores and trips, built around a companion character. The full plan is in [docs/build-plan.md](docs/build-plan.md).
 
-**Current stage: Phase 4, notifications.** The app has notes, to-dos and shopping (Phase 1), chores, points and a companion (Phase 2), trips (Phase 3), and notifications sent through the Worker (Phase 4). The custom companion is next. Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
+**Current stage: Phase 5, the custom companion.** The app has notes, to-dos and shopping (Phase 1), chores, points and a companion (Phase 2), trips (Phase 3), notifications sent through the Worker (Phase 4), and a companion that can be given its own picture, name, character and way of speaking, saved as a character card (Phase 5). The NovelAI companion is next. Phase 0's findings are in [docs/phase-0-results.md](docs/phase-0-results.md).
 
 Not built yet from the plan: habits, the weekly review and task aging (Phase 2 extras); dragging stops between days and general list templates (Phase 3).
 
@@ -62,7 +62,17 @@ Nothing about the game is stored as a running total. The activity log records ea
 
 ### The companion
 
-Its lines are in `app/content/dialogue.ts`, grouped by event. Its art is in `app/content/companion/`, one image per pose.
+Its art is in `app/content/companion/`, one image per pose, until a picture is uploaded.
+
+**Dialogue styles.** A style is a full set of lines for the same events. Calm is in `app/content/dialogue.ts`, and Cheerful, Teasing, Formal and Deadpan are in `app/content/styles.ts`. To add a style, copy one, rewrite its lines, and add it to `STYLES`. The tests check that every style covers every event, uses only the words in braces that its event fills in, and never scolds.
+
+**Who the companion is** is a `CompanionCard` (`card.ts`): name, description, personality, example lines, the chosen style, the appearance prompt and default outfit for NovelAI later, and the framing of its face. It is edited from Customize on the Companion tab and stored on the phone with its pictures. Bond level and unlocks are progress, not identity, so they are never part of it.
+
+**Pictures.** One uploaded picture replaces the default art. Happy, proud, sleepy and concerned can each have their own, and use the main one otherwise. A picture is scaled down to 1024 pixels on its longer side and stored in the database as a data address, so it is in the backup file too. The sliders under Close-up set the card's framing.
+
+**Character card file.** "Save as a card" writes the main picture as a PNG with the card inside it, in the SillyTavern V2 layout: a text chunk named `chara` holding the card as base64 JSON. The standard fields carry name, description, personality and example lines, and this app's own fields sit in `extensions.companion_app`. Loading a card reads the same chunk and takes the file's picture as the main picture. Fields this app does not use are kept and written back, so a card from another tool exports as it came. The file has to be saved to Files: Photos re-encodes pictures and drops the character.
+
+**On the Companion tab:** a daily check-in (a low day turns on low-energy mode), the count of lines the bond level has unlocked, completions over the last eight weeks, the chores waiting longest, and what the companion has said lately. That history, and the check-in answer, are kept on the phone outside the backup. When tapped, the companion sometimes recalls the biggest win of the last month or remarks on a week that beat the last one. It never remarks on a week that did not.
 
 **Art contract.** This holds for the default art and for every companion image later, uploaded or generated:
 
@@ -75,7 +85,7 @@ The art is shown two ways from the same image: whole on the Companion tab, and a
 
 **The five SVGs in the folder are placeholders.** To use real art, put `idle.png`, `happy.png`, `proud.png`, `sleepy.png` and `concerned.png` beside them. They replace the placeholders with no code change, and the close-up switches to the framing for a standing figure. If the face sits somewhere unusual, set `framing` in `app/content/companion/index.ts`.
 
-The tone rule is tested: no line may scold or count what was missed.
+The tone rule is tested for every style: no line may scold or count what was missed.
 
 ### Trips
 

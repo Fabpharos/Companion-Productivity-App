@@ -62,7 +62,18 @@ const POSE: Record<LineEvent, Pose> = {
   pushStreak: "idle",
   pushTripTask: "idle",
   pushBackup: "idle",
+  memory: "happy",
+  checkinGood: "happy",
+  checkinOkay: "idle",
+  checkinLow: "sleepy",
+  trendUp: "proud",
 };
+
+/** How many of a style's lines the bond level has unlocked, out of all it has. */
+export function unlockedLines(style: DialogueStyle, bond: number): { have: number; total: number } {
+  const lines = Object.values(style.lines).flat();
+  return { have: lines.filter((line) => typeof line === "string" || line.bond <= bond).length, total: lines.length };
+}
 
 /** How close a trip must be for the companion to dress for it. */
 const OUTFIT_DAYS = 7;

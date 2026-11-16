@@ -1,8 +1,9 @@
-// The default companion's lines, grouped by what just happened. Plain data:
-// add a line to a group and the companion starts saying it.
+// What a dialogue style is, and the first one: Calm. The other styles are in
+// styles.ts. Lines are grouped by what just happened. Plain data: add a line
+// to a group and the companion starts saying it.
 //
 // Words in braces are filled in: {name} is the task or chore, {n} a number,
-// {points} the points earned. A line given as { text, bond } is only said
+// {points} the points earned, {task} a short list of names. A line given as { text, bond } is only said
 // once the bond level reaches that number.
 //
 // Tone rule: the companion encourages and celebrates. It never scolds, never
@@ -39,7 +40,12 @@ export type LineEvent =
   | "pushChores"
   | "pushStreak"
   | "pushTripTask"
-  | "pushBackup";
+  | "pushBackup"
+  | "memory"
+  | "checkinGood"
+  | "checkinOkay"
+  | "checkinLow"
+  | "trendUp";
 
 export type Line = string | { text: string; bond: number };
 
@@ -55,8 +61,8 @@ export interface DialogueStyle {
 }
 
 export const DEFAULT_STYLE: DialogueStyle = {
-  id: "default",
-  name: "Default",
+  id: "calm",
+  name: "Calm",
   lines: {
     morning: ["Good morning. Ready when you are.", "Morning. One small thing is a fine start.", "Good morning. What matters most today?"],
     day: ["Good to see you.", "Hello again. What are we doing?", "Hi. Pick one thing and I'll keep you company."],
@@ -107,6 +113,14 @@ export const DEFAULT_STYLE: DialogueStyle = {
     pushStreak: ["One small thing today keeps {n} days going.", "{n} days running. Anything small counts today.", "A small win tonight keeps your {n} days going."],
     pushTripTask: ["Due today before the trip: {task}.", "For the trip, today: {task}."],
     pushBackup: ["It has been two weeks. A fresh backup takes one tap.", "Time for a new backup file. One tap in Settings."],
+    // {name} is something finished {n} days ago.
+    memory: ["I was thinking about \"{name}\". That was {n} days ago, and it went well.", "Remember \"{name}\", {n} days ago? That was a good one."],
+    // Answers to the daily check-in.
+    checkinGood: ["Good to hear. Let's make something of it.", "I'm glad. We'll use it well."],
+    checkinOkay: ["Okay is a fine place to start from.", "Okay it is. One thing at a time."],
+    checkinLow: ["Thank you for telling me. Easy things only today.", "Then today is a gentle day. I've put the hard things away."],
+    // {n} is this week's count, said only when it is more than last week's.
+    trendUp: ["{n} things done this week, more than last week.", "{n} this week. You're picking up pace."],
     tap: [
       "I'm here.",
       "Hello.",

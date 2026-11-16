@@ -1421,3 +1421,79 @@ textarea.text.tall {
   background: #eeeeee;
   color: #111111;
 }
+
+/* ---------- Companion editor and history ---------- */
+
+.thumb {
+  flex: none;
+  width: 44px;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  object-fit: cover;
+  object-position: top;
+  background: var(--sunken);
+}
+
+.thumb.large {
+  width: 96px;
+  border-radius: 14px;
+  object-fit: contain;
+}
+
+.input.area {
+  display: block;
+  min-height: 88px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.slider {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.slider input {
+  width: 100%;
+  min-height: 28px;
+  accent-color: var(--accent);
+}
+
+.weeks {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 112px;
+  padding: 12px 14px;
+}
+
+.weeks .week {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.weeks .week i {
+  display: block;
+  width: 100%;
+  min-height: 3px;
+  border-radius: 6px 6px 2px 2px;
+  background: var(--line);
+}
+
+.weeks .week.now i {
+  background: var(--accent);
+}
+
+.weeks .week.now {
+  color: var(--text);
+}

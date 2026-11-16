@@ -7,7 +7,11 @@
 
 import { liveQuery } from "dexie";
 import { framing, poseImage } from "../content/companion/index.ts";
-import { DEFAULT_STYLE, type LineEvent } from "../content/dialogue.ts";
+import type { LineEvent } from "../content/dialogue.ts";
+import { styleById } from "../content/styles.ts";
+import { deliver } from "./files.ts";
+import { prepareImage, toPng } from "./image.ts";
+import { CardError, cardFileName, DEFAULT_CARD, embedCard, extractCard } from "./lib/card.ts";
 import * as actions from "./lib/actions.ts";
 import {
   completionEvent,
@@ -22,7 +26,19 @@ import {
   type Vars,
 } from "./lib/companion.ts";
 import { daysBetween, localDate } from "./lib/dates.ts";
-import { db, readConnection, readSettings, saveConnection, saveSettings, type Undo } from "./lib/db.ts";
+import {
+  db,
+  readCompanion,
+  readConnection,
+  readSettings,
+  removeImages,
+  replaceCompanion,
+  saveCompanion,
+  saveConnection,
+  saveImage,
+  saveSettings,
+  type Undo,
+} from "./lib/db.ts";
 import { milestones, summarize } from "./lib/game.ts";
 import { title } from "./lib/items.ts";
 import {
@@ -30,19 +46,23 @@ import {
   NO_CONNECTION,
   type Activity,
   type Chore,
+  type CompanionCard,
   type Connection,
   type Item,
   type ItemKind,
   type List,
   type NotifySettings,
+  type PoseName,
   type QuestSet,
   type Reward,
   type Settings,
+  type StoredImage,
   type Theme,
   type Trip,
   type TripEntry,
 } from "./lib/model.ts";
 import { badgeCount, plan, toReminders } from "./lib/notify.ts";
+import { recentWin, trendUp, weeklyCounts } from "./lib/stats.ts";
 import { currentTrip, tasksComingDue, travellingOn } from "./lib/trips.ts";
 import { PushError, sendReminders, sendTest, setBadge, subscribe, unsubscribe } from "./push.ts";
 
@@ -58,6 +78,11 @@ class Data {
   settings = $state.raw<Settings>(DEFAULT_SETTINGS);
   /** Where notifications are sent from, and whether this phone is subscribed. */
   connection = $state.raw<Connection>(NO_CONNECTION);
+  /** Who the companion is, and its own pictures if it has any. */
+  card = $state.raw<CompanionCard>(DEFAULT_CARD);
+  images = $state.raw<StoredImage[]>([]);
+  /** The set of lines the companion speaks with. */
+  style = $derived(styleById(this.card.styleId));
   ready = $state(false);
   now = $state(Date.now());
   today = $derived(localDate(this.now));
@@ -70,7 +95,7 @@ class Data {
   /** What the companion is wearing: the outfit of a trip that is close or under way. */
   outfit = $derived(outfitFor(this.trip, this.today));
   /** The notifications coming in the next two weeks, as the Worker will be told. */
-  plan = $derived(plan(this, this.now, { style: DEFAULT_STYLE, bond: this.game.bond.level }));
+  plan = $derived(plan(this, this.now, { style: this.style, bond: this.game.bond.level }));
   /** The number on the app icon: to-dos due today or earlier. */
   badge = $derived(badgeCount(this.items, this.today));
 
@@ -83,7 +108,7 @@ export const data = new Data();
 
 export const TABS = ["today", "lists", "chores", "trips", "companion"] as const;
 export type Tab = (typeof TABS)[number];
-export type Overlay = "search" | "settings" | "archive" | null;
+export type Overlay = "search" | "settings" | "archive" | "companion" | null;
 
 export const TRIP_SECTIONS = ["overview", "packing", "tasks", "itinerary", "wishes", "budget", "phrases", "souvenirs", "journal"] as const;
 export type TripSection = (typeof TRIP_SECTIONS)[number];
@@ -109,6 +134,15 @@ export interface Timer {
   /** Set once the companion has said the time is up. */
   announced: boolean;
 }
+
+/** Something the companion said, kept for its history. */
+export interface Said {
+  at: number;
+  event: LineEvent;
+  text: string;
+}
+
+export type Mood = "good" | "okay" | "low";
 
 export interface Sync {
   state: "idle" | "ok" | "error";
@@ -140,6 +174,10 @@ class Ui {
   timer = $state.raw<Timer | null>(null);
   /** The time, updated every second while a timer runs. */
   clock = $state(Date.now());
+  /** The last things the companion said, newest first. */
+  said = $state.raw<Said[]>([]);
+  /** Today's answer to the daily check-in, once given. */
+  checkin = $state.raw<{ date: string; mood: Mood } | null>(null);
   /** How the last hand-over of notifications to the Worker went. */
   sync = $state.raw<Sync>({ state: "idle", message: "", at: null });
 
@@ -225,6 +263,14 @@ export function start() {
     error: (error) => console.error(error),
   });
 
+  // The companion's card and pictures are read apart from the rest, so the pictures are not reread on every change elsewhere.
+  liveQuery(async () => ({ card: await readCompanion(), images: await db.images.toArray() })).subscribe({
+    next: (companion) => Object.assign(data, companion),
+    error: (error) => console.error(error),
+  });
+  ui.said = remembered.get<Said[]>("said") ?? [];
+  ui.checkin = remembered.get<{ date: string; mood: Mood }>("checkin");
+
   // Keeps "today" right when the app is left open overnight or reopened, and makes the new day's quests.
   const tick = () => {
     data.now = Date.now();
@@ -272,13 +318,24 @@ const DEFAULT_ART: CompanionArt = { image: poseImage, framing };
 /**
  * The art for the companion in use. Every screen gets its pictures from here,
  * so a custom or generated companion only has to be returned from this one place.
+ * An uploaded main picture replaces the default art, and stands in for any pose without its own.
  */
 export function companionArt(): CompanionArt {
-  return DEFAULT_ART;
+  const main = data.images.find((image) => image.id === "idle");
+  if (!main) return DEFAULT_ART;
+  const byPose = new Map(data.images.map((image) => [image.id, image.data]));
+  return { image: (pose) => byPose.get(pose) ?? main.data, framing: data.card.framing };
 }
 
+/** The events worth showing as milestones in the companion's history. */
+export const MILESTONE_EVENTS: readonly LineEvent[] = ["levelUp", "streak", "bond", "quest"];
+const SAID_KEPT = 40;
+
 export function speak(event: LineEvent, vars: Vars = {}) {
-  ui.companion = say(DEFAULT_STYLE, event, vars, data.game.bond.level, Math.random(), data.outfit);
+  ui.companion = say(data.style, event, vars, data.game.bond.level, Math.random(), data.outfit);
+  if (!ui.companion.text) return;
+  ui.said = [{ at: Date.now(), event, text: ui.companion.text }, ...ui.said].slice(0, SAID_KEPT);
+  remembered.set("said", ui.said);
 }
 
 /** The first line of a launch: a greeting, or a gentle mention of something overdue when it is the first launch of the day. */
@@ -297,12 +354,18 @@ function greet() {
   else speak(greetingEvent(new Date().getHours(), lastOpen ? daysBetween(lastOpen, data.today) : 0, lowEnergy));
 }
 
-/** Tapping the companion gets a line, a suggestion for what to do next, or a little movement. */
+/** Tapping the companion gets a line, something it remembers, a suggestion for what to do next, or a little movement. */
 export function tapCompanion() {
   const roll = Math.random();
-  if (roll < 0.25) {
+  const win = roll < 0.3 ? recentWin(data.activity, data.now) : null;
+  const rising = roll < 0.4 ? trendUp(weeklyCounts(data.activity, data.today, 2)) : null;
+  if (roll < 0.15) {
     ui.wiggle++;
-  } else if (roll < 0.6) {
+  } else if (win) {
+    speak("memory", { name: win.name, n: win.days });
+  } else if (roll >= 0.3 && rising !== null) {
+    speak("trendUp", { n: rising });
+  } else if (roll < 0.65) {
     const next = suggestNext(data.travelling ? [] : data.chores, data.items, data.now, data.today, data.settings.lowEnergy);
     speak(next.event, next.vars);
   } else {
@@ -442,6 +505,74 @@ export async function buyReward(reward: Reward) {
 
 export function setTheme(theme: Theme) {
   void saveSettings({ theme });
+}
+
+// ---------- Companion ----------
+
+/** Changes who the companion is. The screen updates at once, and the change is stored. */
+export function saveCard(patch: Partial<CompanionCard>) {
+  data.card = { ...data.card, ...patch };
+  void saveCompanion(data.card);
+}
+
+/** Switches the dialogue style and says something in it straight away. */
+export function setStyle(styleId: string) {
+  saveCard({ styleId });
+  speak("tap");
+}
+
+/** Stores a chosen picture for a pose. Returns what went wrong, or null. */
+export async function uploadImage(pose: PoseName, file: Blob): Promise<string | null> {
+  try {
+    await saveImage({ id: pose, ...(await prepareImage(file)) });
+    return null;
+  } catch (reason) {
+    return reason instanceof Error ? reason.message : "That picture could not be used.";
+  }
+}
+
+/** Removes one pose's picture. Removing the main one removes them all, and the default art returns. */
+export async function removeImage(pose: PoseName) {
+  await removeImages(pose === "idle" ? undefined : pose);
+}
+
+/** Saves the companion as a character card: its main picture as a PNG with the card inside. */
+export async function exportCard(): Promise<string | null> {
+  try {
+    const picture = await toPng(companionArt().image("idle"));
+    const done = await deliver(embedCard(picture, data.card), cardFileName(data.card), "image/png");
+    if (done) toast("Card file created");
+    return null;
+  } catch (reason) {
+    return reason instanceof CardError ? reason.message : "The card could not be created.";
+  }
+}
+
+/** Loads a character card file: the character in it, with the file's picture as its main picture. */
+export async function importCard(file: File): Promise<string | null> {
+  try {
+    const card = extractCard(new Uint8Array(await file.arrayBuffer()));
+    if (!card) return "This picture has no character in it. A character card is a PNG saved from a character tool, or exported from here.";
+    await replaceCompanion(card, [{ id: "idle", ...(await prepareImage(file)) }]);
+    toast(card.name ? `Loaded ${card.name}` : "Card loaded");
+    return null;
+  } catch (reason) {
+    return reason instanceof CardError ? reason.message : "That file could not be read as a card.";
+  }
+}
+
+/** Goes back to the default companion: no name, the first style, the default art. */
+export async function resetCompanion() {
+  await replaceCompanion(DEFAULT_CARD, []);
+  toast("Back to the default companion");
+}
+
+/** Answers the daily check-in. A low day turns on low-energy mode, and any other answer turns it off. */
+export function checkIn(mood: Mood) {
+  ui.checkin = { date: data.today, mood };
+  remembered.set("checkin", ui.checkin);
+  void actions.setLowEnergy(mood === "low");
+  speak(mood === "good" ? "checkinGood" : mood === "okay" ? "checkinOkay" : "checkinLow");
 }
 
 // ---------- Notifications ----------

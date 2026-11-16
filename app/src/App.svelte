@@ -3,6 +3,7 @@
   import { formatDate, weekdayName } from "./lib/dates.ts";
   import Archive from "./screens/Archive.svelte";
   import Chores from "./screens/Chores.svelte";
+  import CompanionEditor from "./screens/CompanionEditor.svelte";
   import CompanionTab from "./screens/CompanionTab.svelte";
   import Lists from "./screens/Lists.svelte";
   import ListView from "./screens/ListView.svelte";
@@ -118,6 +119,7 @@
 {#if ui.overlay === "search"}<Search />{/if}
 {#if ui.overlay === "settings"}<Settings />{/if}
 {#if ui.overlay === "archive"}<Archive />{/if}
+{#if ui.overlay === "companion"}<CompanionEditor />{/if}
 {#if ui.entryId}
   {#key ui.entryId}<EntrySheet id={ui.entryId} />{/key}
 {/if}
